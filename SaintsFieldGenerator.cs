@@ -114,24 +114,18 @@ namespace SaintsFieldSourceGenerator
                                                 VariableDeclaratorSyntax variable = fieldDeclarationSyntax.Declaration.Variables[0];
                                                 DebugToFile(variable.Identifier.Text);
 
-                                                SyntaxList<AttributeListSyntax> attributes = fieldDeclarationSyntax.AttributeLists;
-                                                foreach (AttributeListSyntax attributeList in attributes)
+                                                ICollection<string> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
+
+                                                if (attributeStrings != null)
                                                 {
-                                                    foreach (AttributeSyntax attributeSyntax in attributeList.Attributes)
-                                                    {
-                                                        DebugToFile(attributeSyntax.Name.ToString());
-                                                        string attrName = attributeSyntax.Name.ToString();
-                                                        if(attrName == "SaintsField.Playa.SaintsSerialized" || attrName == "Playa.SaintsSerialized" || attrName == "SaintsSerialized")
-                                                        {
-                                                            DebugToFile($"Found SaintsSerialized on {variable.Identifier.Text}");
+                                                    DebugToFile($"Found SaintsSerialized on {variable.Identifier.Text}");
 
-                                                            genSerInfos.Add(new GenSerInfo(varType.ToString(),
-                                                                variable.Identifier.Text
-                                                            ));
+                                                    genSerInfos.Add(new GenSerInfo(
+                                                        varType.ToString(),
+                                                        variable.Identifier.Text,
+                                                        attributeStrings
+                                                    ));
 
-                                                            break;
-                                                        }
-                                                    }
                                                 }
                                             }
                                                 break;
@@ -144,24 +138,16 @@ namespace SaintsFieldSourceGenerator
                                                 SyntaxToken identifier = propertyDeclarationSyntax.Identifier;
                                                 DebugToFile(identifier.Text);
 
-                                                SyntaxList<AttributeListSyntax> attributes = propertyDeclarationSyntax.AttributeLists;
-                                                foreach (AttributeListSyntax attributeList in attributes)
+                                                ICollection<string> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
+                                                if (attributeStrings != null)
                                                 {
-                                                    foreach (AttributeSyntax attributeSyntax in attributeList.Attributes)
-                                                    {
-                                                        DebugToFile(attributeSyntax.Name.ToString());
-                                                        string attrName = attributeSyntax.Name.ToString();
-                                                        if(attrName == "SaintsField.Playa.SaintsSerialized" || attrName == "Playa.SaintsSerialized" || attrName == "SaintsSerialized")
-                                                        {
-                                                            DebugToFile($"Found SaintsSerialized on {identifier.Text}");
+                                                    DebugToFile($"Found SaintsSerialized on {identifier.Text}");
 
-                                                            genSerInfos.Add(new GenSerInfo(varType.ToString(),
-                                                                identifier.Text
-                                                            ));
-
-                                                            break;
-                                                        }
-                                                    }
+                                                    genSerInfos.Add(new GenSerInfo(
+                                                        varType.ToString(),
+                                                        identifier.Text,
+                                                        attributeStrings
+                                                    ));
                                                 }
                                             }
                                                 break;
@@ -189,24 +175,34 @@ namespace SaintsFieldSourceGenerator
                                         foreach (GenSerInfo genSerInfo in genSerInfos)
                                         {
                                             sourceBuilder.Append("\n");
-                                            sourceBuilder.Append("        [global::SaintsField.Playa.ShowIf(\n");
-                                            sourceBuilder.Append("#if SAINTSFIELD_SERIALIZED_DEBUG\n");
-                                            sourceBuilder.Append("         true\n");
-                                            sourceBuilder.Append("#else\n");
-                                            sourceBuilder.Append("         false\n");
-                                            sourceBuilder.Append("#endif\n");
-                                            sourceBuilder.Append("        )]\n");
+
+                                            // sourceBuilder.Append("        [global::SaintsField.Playa.ShowIf(\n");
+                                            // sourceBuilder.Append("#if SAINTSFIELD_SERIALIZED_DEBUG\n");
+                                            // sourceBuilder.Append("         true\n");
+                                            // sourceBuilder.Append("#else\n");
+                                            // sourceBuilder.Append("         false\n");
+                                            // sourceBuilder.Append("#endif\n");
+                                            // sourceBuilder.Append("        )]\n");
+
+                                            sourceBuilder.Append($"        [global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n");
+                                            sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
+                                            sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
+                                            if(genSerInfo.Attributes.Count > 0)
+                                            {
+                                                sourceBuilder.Append(
+                                                    $"        [{string.Join(", ", genSerInfo.Attributes)}]\n");
+                                            }
 
                                             // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
                                             if (genSerInfo.CollectionType == CollectionType.None)
                                             {
                                                 sourceBuilder.Append(
-                                                    $"        [global::UnityEngine.SerializeField] private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__;\n");
+                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__;\n");
                                             }
                                             else
                                             {
                                                 sourceBuilder.Append(
-                                                    $"        [global::UnityEngine.SerializeField] private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__;\n");
+                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
 
                                             }
                                         }
@@ -266,18 +262,20 @@ namespace SaintsFieldSourceGenerator
                                                         $"            {genSerInfo.FieldName} = ({genSerInfo.FieldType})global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
                                                     break;
                                                 case CollectionType.Array:
+                                                    sourceBuilder.Append("\n");
                                                     sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
                                                     sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
                                                     sourceBuilder.Append("            {\n");
                                                     sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
-                                                    sourceBuilder.Append("            }\n\n");
+                                                    sourceBuilder.Append("            }\n");
                                                     break;
                                                 case CollectionType.List:
+                                                    sourceBuilder.Append("\n");
                                                     sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
                                                     sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
                                                     sourceBuilder.Append("            {\n");
                                                     sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
-                                                    sourceBuilder.Append("            }\n\n");
+                                                    sourceBuilder.Append("            }\n");
                                                     break;
                                                 default:
                                                     throw new ArgumentOutOfRangeException();
@@ -318,8 +316,9 @@ namespace SaintsFieldSourceGenerator
             public readonly CollectionType CollectionType;
             public readonly string FieldType;
             public readonly string FieldName;
+            public readonly ICollection<string> Attributes;
 
-            public GenSerInfo(string fieldType, string fieldName)
+            public GenSerInfo(string fieldType, string fieldName, ICollection<string> attributes)
             {
                 // IsProperty = isProperty;
                 if (fieldType.EndsWith("[]"))
@@ -338,7 +337,45 @@ namespace SaintsFieldSourceGenerator
                     FieldType = fieldType;
                 }
                 FieldName = fieldName;
+                Attributes = attributes;
             }
+        }
+
+        private ICollection<string> FoundGenSerInfo(SyntaxList<AttributeListSyntax> attributes)
+        {
+            bool foundSaintsSerialized = false;
+            List<string> extraAttributes = new List<string>();
+
+            foreach (AttributeListSyntax attributeList in attributes)
+            {
+                foreach (AttributeSyntax attributeSyntax in attributeList.Attributes)
+                {
+                    DebugToFile(attributeSyntax.Name.ToString());
+                    string attrName = attributeSyntax.Name.ToString();
+                    if(attrName == "SaintsField.Playa.SaintsSerialized" || attrName == "Playa.SaintsSerialized" || attrName == "SaintsSerialized")
+                    {
+                        foundSaintsSerialized = true;
+                        // DebugToFile($"Found SaintsSerialized on {variable.Identifier.Text}");
+                        //
+                        // genSerInfos.Add(new GenSerInfo(varType.ToString(),
+                        //     variable.Identifier.Text
+                        // ));
+                    }
+                    else if(attrName == "NonSerialized" || attrName == "System.NonSerialized" || attrName == "global::System.NonSerialized"
+                            || attrName == "SerializeField" || attrName == "UnityEngine.SerializeField" || attrName == "global::UnityEngine.SerializeField")
+                    {
+                        // ignore
+                    }
+                    else
+                    {
+                        extraAttributes.Add(attrName);
+                    }
+                }
+            }
+
+            return foundSaintsSerialized
+                ? extraAttributes
+                : null;
         }
 
 
