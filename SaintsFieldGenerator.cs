@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using System.Text;
@@ -17,10 +18,32 @@ namespace SaintsFieldSourceGenerator
     {
         public void Execute(GeneratorExecutionContext context)
         {
+            string commonPrefix =
+                LongestCommonPrefix(context.Compilation.SyntaxTrees.Select(each => each.FilePath).ToArray());
+            // DebugToFile($"Common Prefix: {commonPrefix}");
+            if (commonPrefix == "")
+            {
+                return;
+            }
+
+            string assetPath = FindAssetPath(commonPrefix);
+            if (assetPath == "")
+            {
+                return;
+            }
+
+            DebugToFile($"Found Asset Path: {assetPath}");
+
             try
             {
                 foreach (SyntaxTree tree in context.Compilation.SyntaxTrees)
                 {
+                    string norPath = tree.FilePath.Replace("\\", "/");
+                    if (!norPath.StartsWith(assetPath))
+                    {
+                        DebugToFile($"not in asset path: {tree.FilePath}");
+                        continue;
+                    }
                     string fileName = Path.GetFileName(tree.FilePath);
                     // DebugToFile(fileName);
                     CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
@@ -185,8 +208,8 @@ namespace SaintsFieldSourceGenerator
                                             // sourceBuilder.Append("        )]\n");
 
                                             sourceBuilder.Append($"        [global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n");
-                                            sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
                                             sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
+                                            sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
                                             if(genSerInfo.Attributes.Count > 0)
                                             {
                                                 sourceBuilder.Append(
@@ -197,7 +220,7 @@ namespace SaintsFieldSourceGenerator
                                             if (genSerInfo.CollectionType == CollectionType.None)
                                             {
                                                 sourceBuilder.Append(
-                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__;\n");
+                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
                                             }
                                             else
                                             {
@@ -303,6 +326,30 @@ namespace SaintsFieldSourceGenerator
             }
         }
 
+        private static string FindAssetPath(string commonPrefix)
+        {
+            List<string> parts = new List<string>(commonPrefix.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries));
+            while (parts.Count > 0)
+            {
+                if(parts[parts.Count - 1] == "Assets")
+                {
+                    string joinedPath = string.Join("/", parts);
+                    foreach (string subFolder in new string[]{"Packages", "ProjectSettings"})
+                    {
+                        string subPath = $"{joinedPath}/{subFolder}";
+                        if (Directory.Exists(subPath))
+                        {
+                            return joinedPath;
+                        }
+                    }
+                }
+                parts.RemoveAt(parts.Count - 1);
+            }
+
+            // DebugToFile($"Failed to find any asset folder in {commonPrefix}");
+            return string.Empty;
+        }
+
         private enum CollectionType
         {
             None,
@@ -381,6 +428,27 @@ namespace SaintsFieldSourceGenerator
 
         public void Initialize(GeneratorInitializationContext context)
         {
+        }
+
+        public static string LongestCommonPrefix(IReadOnlyList<string> strs)
+        {
+            if (strs == null || strs.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            string prefix = strs[0];
+            for (int i = 1; i < strs.Count; i++)
+            {
+                int j = 0;
+                while (j < prefix.Length && j < strs[i].Length && prefix[j] == strs[i][j])
+                {
+                    j++;
+                }
+                prefix = prefix.Substring(0, j);
+                if (prefix == string.Empty) break;
+            }
+            return prefix;
         }
 
         private static void DebugToFile(string toWrite)
