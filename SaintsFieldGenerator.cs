@@ -1,12 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using System.Text;
+using System.Text.Encodings.Web;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 // #if UNITY_EDITOR
 // using UnityEngine;
 // #endif
@@ -16,6 +21,56 @@ namespace SaintsFieldSourceGenerator
     [Generator]
     public class SaintsFieldGenerator : ISourceGenerator
     {
+        public enum SaintsPropertyType
+        {
+            Undefined = 0,  // SaintsEditor never kicked in even once.
+            EnumLong = 1,
+            EnumULong = 2,
+            ClassOrStruct = 3,
+        }
+        public enum SaintsTargetCollection
+        {
+            FieldOrProperty,
+            Array,
+            List,
+        }
+
+
+        public class SerializedInfo
+        {
+            [JsonInclude]
+            public readonly string Name;
+            [JsonInclude]
+            public readonly SaintsPropertyType SaintsPropertyType;
+            // public readonly int SaintsPropertyType;
+            [JsonInclude]
+            public readonly bool IsProperty;
+            // public readonly bool IsArray;
+            // public readonly bool IsList;
+            [JsonInclude]
+            public readonly SaintsTargetCollection TargetCollection;
+            // public readonly int TargetCollection;
+
+            [JsonInclude]
+            public readonly IReadOnlyList<SerializedInfo> SubFields;
+            public override string ToString()
+            {
+                return $"<SerializedInfo Name={Name}, IsProperty={IsProperty}, TargetCollection={TargetCollection}, SaintsPropertyType: {SaintsPropertyType}, SubFields=[{string.Join(",", SubFields.Select(each => $"\n    {each}"))}] />";
+                // return $"SerializedInfo: Name={Name}, IsProperty={IsProperty}, TargetCollection={TargetCollection}, SaintsPropertyType: {SaintsPropertyType}";
+            }
+
+            public SerializedInfo(string name, bool isProperty, SaintsTargetCollection targetCollection, SaintsPropertyType saintsPropertyType, IReadOnlyList<SerializedInfo> subFields)
+            {
+                Name = name;
+                IsProperty = isProperty;
+                TargetCollection = targetCollection;
+                SaintsPropertyType = saintsPropertyType;
+                SubFields = subFields;
+            }
+
+            public string ToAttrCompactString() => $"\"{Name},{(IsProperty ? "1" : "0")},{(int)TargetCollection},{(int)SaintsPropertyType}\"" ;
+        }
+
         public void Execute(GeneratorExecutionContext context)
         {
             string commonPrefix =
@@ -26,24 +81,52 @@ namespace SaintsFieldSourceGenerator
                 return;
             }
 
-            string assetPath = FindAssetPath(commonPrefix);
-            if (assetPath == "")
+            string assetPathNotIncluded = FindAssetPathNotIncluded(commonPrefix);
+            if (assetPathNotIncluded == "")
             {
                 return;
             }
 
-            DebugToFile($"Found Asset Path: {assetPath}");
+            // DebugToFile($"Found Asset Path: {assetPathNotIncluded}");
 
             try
             {
                 foreach (SyntaxTree tree in context.Compilation.SyntaxTrees)
                 {
                     string norPath = tree.FilePath.Replace("\\", "/");
-                    if (!norPath.StartsWith(assetPath))
+                    if (!norPath.StartsWith(assetPathNotIncluded + "/Assets/"))
                     {
                         DebugToFile($"not in asset path: {tree.FilePath}");
                         continue;
                     }
+                    string relativePath = norPath.Substring(assetPathNotIncluded.Length + "/Assets".Length + 1);
+                    // DebugToFile(relativePath);
+                    string configJsonFile = $"{assetPathNotIncluded}/Temp/SaintsField/{relativePath}.json";
+                    if(!File.Exists(configJsonFile))
+                    {
+                        // DebugToFile($"no config json: {configJsonFile}");
+                        continue;
+                    }
+
+                    DebugToFile(configJsonFile);
+                    string jsonStr = File.ReadAllText(configJsonFile);
+
+                    // DebugToFile(jsonStr);
+                    JsonDocument jd = JsonDocument.Parse(jsonStr);
+                    JsonElement jRoot = jd.RootElement;
+                    SerializedInfo[] serializedInfos =
+                        jRoot.EnumerateArray().Select(JsonElementToSerializedInfo).ToArray();
+
+                    // SerializedInfo[] serializedInfos = JsonSerializer.Deserialize<SerializedInfo[]>(jsonStr);
+                    // // DebugToFile(string.Join("\n", serializedInfo.Select(each => each.ToString())));
+                    // // DebugToFile(serializedInfos.ToString());
+
+                    DebugToFile($"serializedInfos.Length={serializedInfos.Length}");
+                    foreach (SerializedInfo serializedInfo in serializedInfos)
+                    {
+                        DebugToFile($"serializedInfo={serializedInfo}");
+                    }
+
                     string fileName = Path.GetFileName(tree.FilePath);
                     // DebugToFile(fileName);
                     CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
@@ -115,202 +198,229 @@ namespace SaintsFieldSourceGenerator
                                         continue;
                                     }
 
-                                    if (classDeclaration.Identifier.Text != "SerEnumULong")
-                                    {
-                                        continue;
-                                    }
-
                                     DebugToFile($"GEN: {nameSpace}: {classDeclaration.Identifier.Text}");
 
-                                    List<GenSerInfo> genSerInfos = new List<GenSerInfo>();
-
-                                    foreach (MemberDeclarationSyntax classDeclarationMember in classDeclaration.Members)
+                                    StringBuilder sourceBuilder = new StringBuilder();
+                                    foreach (string usingName in usingNames)
                                     {
-                                        switch (classDeclarationMember.Kind())
-                                        {
-                                            case SyntaxKind.FieldDeclaration:
-                                            {
-                                                FieldDeclarationSyntax fieldDeclarationSyntax =
-                                                    (FieldDeclarationSyntax)classDeclarationMember;
-                                                TypeSyntax varType = fieldDeclarationSyntax.Declaration.Type;
-                                                DebugToFile(varType.ToString());
-                                                VariableDeclaratorSyntax variable = fieldDeclarationSyntax.Declaration.Variables[0];
-                                                DebugToFile(variable.Identifier.Text);
+                                        sourceBuilder.Append($"using {usingName};\n");
+                                    }
+                                    sourceBuilder.Append($"namespace {nameSpace}\n{{\n");
+                                    // sourceBuilder.Append($@"    {classDeclaration.Keyword} partial class {classDeclaration.Identifier.Text}\n    {{\n");
+                                    sourceBuilder.Append(
+                                        $"    {string.Join(" ", modifiersList)} class {classDeclaration.Identifier.Text}: global::UnityEngine.ISerializationCallbackReceiver\n    {{\n");
 
-                                                ICollection<string> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
-
-                                                if (attributeStrings != null)
-                                                {
-                                                    DebugToFile($"Found SaintsSerialized on {variable.Identifier.Text}");
-
-                                                    genSerInfos.Add(new GenSerInfo(
-                                                        varType.ToString(),
-                                                        variable.Identifier.Text,
-                                                        attributeStrings
-                                                    ));
-
-                                                }
-                                            }
-                                                break;
-                                            case SyntaxKind.PropertyDeclaration:
-                                            {
-                                                PropertyDeclarationSyntax propertyDeclarationSyntax =
-                                                    (PropertyDeclarationSyntax)classDeclarationMember;
-                                                TypeSyntax varType = propertyDeclarationSyntax.Type;
-                                                DebugToFile(varType.ToString());
-                                                SyntaxToken identifier = propertyDeclarationSyntax.Identifier;
-                                                DebugToFile(identifier.Text);
-
-                                                ICollection<string> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
-                                                if (attributeStrings != null)
-                                                {
-                                                    DebugToFile($"Found SaintsSerialized on {identifier.Text}");
-
-                                                    genSerInfos.Add(new GenSerInfo(
-                                                        varType.ToString(),
-                                                        identifier.Text,
-                                                        attributeStrings
-                                                    ));
-                                                }
-                                            }
-                                                break;
-                                        }
+                                    foreach (SerializedInfo serializedInfo in serializedInfos)
+                                    {
+                                        WriteSerializedInfoFields(sourceBuilder, serializedInfo, Array.Empty<string>());
                                     }
 
-                                    if (genSerInfos.Count > 0)
-                                    {
-                                        // StringBuilder sourceBuilder = new StringBuilder($"GEN: {nameSpace}: {classDeclaration.Identifier.Text} \n");
-                                        // context.AddSource($"{classDeclaration.Identifier.Text}_SaintsFieldGenerated.txt",
-                                        //     SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
-                                        StringBuilder sourceBuilder = new StringBuilder();
-                                        foreach (string usingName in usingNames)
-                                        {
-                                            sourceBuilder.Append($"using {usingName};\n");
-                                        }
-                                        sourceBuilder.Append($"namespace {nameSpace}\n{{\n");
-                                        // sourceBuilder.Append($@"    {classDeclaration.Keyword} partial class {classDeclaration.Identifier.Text}\n    {{\n");
-                                        sourceBuilder.Append(
-                                            $"    {string.Join(" ", modifiersList)} class {classDeclaration.Identifier.Text}: global::UnityEngine.ISerializationCallbackReceiver\n    {{\n");
+                                    sourceBuilder.Append("\n");
+                                    sourceBuilder.Append("        public void OnBeforeSerialize()\n");
+                                    sourceBuilder.Append("        {\n");
+                                    // foreach (SerializedInfo serializedInfo in serializedInfos)
+                                    // {
+                                    //     WriteBeforeInfoFields(sourceBuilder, serializedInfo, Array.Empty<string>());
+                                    // }
+                                    sourceBuilder.Append("        }\n");
 
-                                        // sourceBuilder.Append(
-                                        //     $"        public static string GeneratedStringSaintsField() => \"This is generated in {System.DateTime.Now:O}\";\n");
+                                    sourceBuilder.Append("        public void OnAfterDeserialize()\n");
+                                    sourceBuilder.Append("        {\n");
+                                    sourceBuilder.Append("        }\n");
 
-                                        foreach (GenSerInfo genSerInfo in genSerInfos)
-                                        {
-                                            sourceBuilder.Append("\n");
+                                    sourceBuilder.Append("    }\n}");
+                                    context.AddSource($"{classDeclaration.Identifier.Text}.SaintsSerialized.cs",
+                                        SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
 
-                                            // sourceBuilder.Append("        [global::SaintsField.Playa.ShowIf(\n");
-                                            // sourceBuilder.Append("#if SAINTSFIELD_SERIALIZED_DEBUG\n");
-                                            // sourceBuilder.Append("         true\n");
-                                            // sourceBuilder.Append("#else\n");
-                                            // sourceBuilder.Append("         false\n");
-                                            // sourceBuilder.Append("#endif\n");
-                                            // sourceBuilder.Append("        )]\n");
-
-                                            sourceBuilder.Append($"        [global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n");
-                                            sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
-                                            sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
-                                            if(genSerInfo.Attributes.Count > 0)
-                                            {
-                                                sourceBuilder.Append(
-                                                    $"        [{string.Join(", ", genSerInfo.Attributes)}]\n");
-                                            }
-
-                                            // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
-                                            if (genSerInfo.CollectionType == CollectionType.None)
-                                            {
-                                                sourceBuilder.Append(
-                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
-                                            }
-                                            else
-                                            {
-                                                sourceBuilder.Append(
-                                                    $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
-
-                                            }
-                                        }
-
-                                        sourceBuilder.Append("\n");
-                                        sourceBuilder.Append("        public void OnBeforeSerialize()\n");
-                                        sourceBuilder.Append("        {\n");
-                                        foreach (GenSerInfo genSerInfo in genSerInfos)
-                                        {
-                                            if(genSerInfo.CollectionType != CollectionType.None)
-                                            {
-                                                sourceBuilder.Append("\n");
-                                                sourceBuilder.Append($"            if ({genSerInfo.FieldName} == null)\n");
-                                                sourceBuilder.Append("            {\n");
-                                                sourceBuilder.Append($"                {genSerInfo.FieldName} = ");
-                                                switch (genSerInfo.CollectionType)
-                                                {
-                                                    case CollectionType.Array:
-                                                        sourceBuilder.Append("global::System.Array.Empty<");
-                                                        sourceBuilder.Append(genSerInfo.FieldType);
-                                                        sourceBuilder.Append(">();\n");
-                                                        break;
-                                                    case CollectionType.List:
-                                                        sourceBuilder.Append("new global::System.Collections.Generic.List<");
-                                                        sourceBuilder.Append(genSerInfo.FieldType);
-                                                        sourceBuilder.Append(">();\n");
-                                                        break;
-                                                }
-                                                sourceBuilder.Append("            }\n");
-                                            }
-
-                                            switch (genSerInfo.CollectionType)
-                                            {
-                                                case CollectionType.None:
-                                                    sourceBuilder.Append(
-                                                        $"            {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n");
-                                                    break;
-                                                case CollectionType.Array:
-                                                case CollectionType.List:
-                                                    sourceBuilder.Append(
-                                                        $"            global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<{genSerInfo.FieldType}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n");
-                                                    break;
-                                                default:
-                                                    throw new ArgumentOutOfRangeException();
-                                            }
-                                        }
-                                        sourceBuilder.Append("        }\n");
-
-                                        sourceBuilder.Append("        public void OnAfterDeserialize()\n");
-                                        sourceBuilder.Append("        {\n");
-                                        foreach (GenSerInfo genSerInfo in genSerInfos)
-                                        {
-                                            switch (genSerInfo.CollectionType)
-                                            {
-                                                case CollectionType.None:
-                                                    sourceBuilder.Append(
-                                                        $"            {genSerInfo.FieldName} = ({genSerInfo.FieldType})global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
-                                                    break;
-                                                case CollectionType.Array:
-                                                    sourceBuilder.Append("\n");
-                                                    sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
-                                                    sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
-                                                    sourceBuilder.Append("            {\n");
-                                                    sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
-                                                    sourceBuilder.Append("            }\n");
-                                                    break;
-                                                case CollectionType.List:
-                                                    sourceBuilder.Append("\n");
-                                                    sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
-                                                    sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
-                                                    sourceBuilder.Append("            {\n");
-                                                    sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
-                                                    sourceBuilder.Append("            }\n");
-                                                    break;
-                                                default:
-                                                    throw new ArgumentOutOfRangeException();
-                                            }
-
-                                        }
-                                        sourceBuilder.Append("        }\n");
-
-                                        sourceBuilder.Append("    }\n}");
-                                        context.AddSource($"{classDeclaration.Identifier.Text}.SaintsSerialized.cs",
-                                            SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
-                                    }
+                                    // List<GenSerInfo> genSerInfos = new List<GenSerInfo>();
+                                    //
+                                    // foreach (MemberDeclarationSyntax classDeclarationMember in classDeclaration.Members)
+                                    // {
+                                    //     switch (classDeclarationMember.Kind())
+                                    //     {
+                                    //         case SyntaxKind.FieldDeclaration:
+                                    //         {
+                                    //             FieldDeclarationSyntax fieldDeclarationSyntax =
+                                    //                 (FieldDeclarationSyntax)classDeclarationMember;
+                                    //             TypeSyntax varType = fieldDeclarationSyntax.Declaration.Type;
+                                    //             DebugToFile(varType.ToString());
+                                    //             VariableDeclaratorSyntax variable = fieldDeclarationSyntax.Declaration.Variables[0];
+                                    //             DebugToFile(variable.Identifier.Text);
+                                    //
+                                    //             ICollection<string> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
+                                    //
+                                    //             if (attributeStrings != null)
+                                    //             {
+                                    //                 // DebugToFile($"Found SaintsSerialized on {variable.Identifier.Text}");
+                                    //
+                                    //                 genSerInfos.Add(new GenSerInfo(
+                                    //                     varType.ToString(),
+                                    //                     variable.Identifier.Text,
+                                    //                     attributeStrings
+                                    //                 ));
+                                    //
+                                    //             }
+                                    //         }
+                                    //             break;
+                                    //         case SyntaxKind.PropertyDeclaration:
+                                    //         {
+                                    //             PropertyDeclarationSyntax propertyDeclarationSyntax =
+                                    //                 (PropertyDeclarationSyntax)classDeclarationMember;
+                                    //             TypeSyntax varType = propertyDeclarationSyntax.Type;
+                                    //             DebugToFile(varType.ToString());
+                                    //             SyntaxToken identifier = propertyDeclarationSyntax.Identifier;
+                                    //             DebugToFile(identifier.Text);
+                                    //
+                                    //             ICollection<string> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
+                                    //             if (attributeStrings != null)
+                                    //             {
+                                    //                 DebugToFile($"Found SaintsSerialized on {identifier.Text}");
+                                    //
+                                    //                 genSerInfos.Add(new GenSerInfo(
+                                    //                     varType.ToString(),
+                                    //                     identifier.Text,
+                                    //                     attributeStrings
+                                    //                 ));
+                                    //             }
+                                    //         }
+                                    //             break;
+                                    //     }
+                                    // }
+                                    //
+                                    // if (genSerInfos.Count > 0)
+                                    // {
+                                    //     // StringBuilder sourceBuilder = new StringBuilder($"GEN: {nameSpace}: {classDeclaration.Identifier.Text} \n");
+                                    //     // context.AddSource($"{classDeclaration.Identifier.Text}_SaintsFieldGenerated.txt",
+                                    //     //     SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
+                                    //     StringBuilder sourceBuilder = new StringBuilder();
+                                    //     foreach (string usingName in usingNames)
+                                    //     {
+                                    //         sourceBuilder.Append($"using {usingName};\n");
+                                    //     }
+                                    //     sourceBuilder.Append($"namespace {nameSpace}\n{{\n");
+                                    //     // sourceBuilder.Append($@"    {classDeclaration.Keyword} partial class {classDeclaration.Identifier.Text}\n    {{\n");
+                                    //     sourceBuilder.Append(
+                                    //         $"    {string.Join(" ", modifiersList)} class {classDeclaration.Identifier.Text}: global::UnityEngine.ISerializationCallbackReceiver\n    {{\n");
+                                    //
+                                    //     // sourceBuilder.Append(
+                                    //     //     $"        public static string GeneratedStringSaintsField() => \"This is generated in {System.DateTime.Now:O}\";\n");
+                                    //
+                                    //     foreach (GenSerInfo genSerInfo in genSerInfos)
+                                    //     {
+                                    //         sourceBuilder.Append("\n");
+                                    //
+                                    //         // sourceBuilder.Append("        [global::SaintsField.Playa.ShowIf(\n");
+                                    //         // sourceBuilder.Append("#if SAINTSFIELD_SERIALIZED_DEBUG\n");
+                                    //         // sourceBuilder.Append("         true\n");
+                                    //         // sourceBuilder.Append("#else\n");
+                                    //         // sourceBuilder.Append("         false\n");
+                                    //         // sourceBuilder.Append("#endif\n");
+                                    //         // sourceBuilder.Append("        )]\n");
+                                    //
+                                    //         sourceBuilder.Append($"        [global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n");
+                                    //         sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
+                                    //         sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
+                                    //         if(genSerInfo.Attributes.Count > 0)
+                                    //         {
+                                    //             sourceBuilder.Append(
+                                    //                 $"        [{string.Join(", ", genSerInfo.Attributes)}]\n");
+                                    //         }
+                                    //
+                                    //         // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
+                                    //         if (genSerInfo.CollectionType == CollectionType.None)
+                                    //         {
+                                    //             sourceBuilder.Append(
+                                    //                 $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
+                                    //         }
+                                    //         else
+                                    //         {
+                                    //             sourceBuilder.Append(
+                                    //                 $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
+                                    //
+                                    //         }
+                                    //     }
+                                    //
+                                    //     sourceBuilder.Append("\n");
+                                    //     sourceBuilder.Append("        public void OnBeforeSerialize()\n");
+                                    //     sourceBuilder.Append("        {\n");
+                                    //     foreach (GenSerInfo genSerInfo in genSerInfos)
+                                    //     {
+                                    //         if(genSerInfo.CollectionType != CollectionType.None)
+                                    //         {
+                                    //             sourceBuilder.Append("\n");
+                                    //             sourceBuilder.Append($"            if ({genSerInfo.FieldName} == null)\n");
+                                    //             sourceBuilder.Append("            {\n");
+                                    //             sourceBuilder.Append($"                {genSerInfo.FieldName} = ");
+                                    //             switch (genSerInfo.CollectionType)
+                                    //             {
+                                    //                 case CollectionType.Array:
+                                    //                     sourceBuilder.Append("global::System.Array.Empty<");
+                                    //                     sourceBuilder.Append(genSerInfo.FieldType);
+                                    //                     sourceBuilder.Append(">();\n");
+                                    //                     break;
+                                    //                 case CollectionType.List:
+                                    //                     sourceBuilder.Append("new global::System.Collections.Generic.List<");
+                                    //                     sourceBuilder.Append(genSerInfo.FieldType);
+                                    //                     sourceBuilder.Append(">();\n");
+                                    //                     break;
+                                    //             }
+                                    //             sourceBuilder.Append("            }\n");
+                                    //         }
+                                    //
+                                    //         switch (genSerInfo.CollectionType)
+                                    //         {
+                                    //             case CollectionType.None:
+                                    //                 sourceBuilder.Append(
+                                    //                     $"            {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n");
+                                    //                 break;
+                                    //             case CollectionType.Array:
+                                    //             case CollectionType.List:
+                                    //                 sourceBuilder.Append(
+                                    //                     $"            global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<{genSerInfo.FieldType}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n");
+                                    //                 break;
+                                    //             default:
+                                    //                 throw new ArgumentOutOfRangeException();
+                                    //         }
+                                    //     }
+                                    //     sourceBuilder.Append("        }\n");
+                                    //
+                                    //     sourceBuilder.Append("        public void OnAfterDeserialize()\n");
+                                    //     sourceBuilder.Append("        {\n");
+                                    //     foreach (GenSerInfo genSerInfo in genSerInfos)
+                                    //     {
+                                    //         switch (genSerInfo.CollectionType)
+                                    //         {
+                                    //             case CollectionType.None:
+                                    //                 sourceBuilder.Append(
+                                    //                     $"            {genSerInfo.FieldName} = ({genSerInfo.FieldType})global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
+                                    //                 break;
+                                    //             case CollectionType.Array:
+                                    //                 sourceBuilder.Append("\n");
+                                    //                 sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
+                                    //                 sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
+                                    //                 sourceBuilder.Append("            {\n");
+                                    //                 sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
+                                    //                 sourceBuilder.Append("            }\n");
+                                    //                 break;
+                                    //             case CollectionType.List:
+                                    //                 sourceBuilder.Append("\n");
+                                    //                 sourceBuilder.Append($"            (bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n");
+                                    //                 sourceBuilder.Append($"            if(!{genSerInfo.FieldName}SaintsFieldFilled)\n");
+                                    //                 sourceBuilder.Append("            {\n");
+                                    //                 sourceBuilder.Append($"                {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n");
+                                    //                 sourceBuilder.Append("            }\n");
+                                    //                 break;
+                                    //             default:
+                                    //                 throw new ArgumentOutOfRangeException();
+                                    //         }
+                                    //
+                                    //     }
+                                    //     sourceBuilder.Append("        }\n");
+                                    //
+                                    //     sourceBuilder.Append("    }\n}");
+                                    //     context.AddSource($"{classDeclaration.Identifier.Text}.SaintsSerialized.cs",
+                                    //         SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
+                                    // }
 
                                 }
                             }
@@ -326,21 +436,96 @@ namespace SaintsFieldSourceGenerator
             }
         }
 
-        private static string FindAssetPath(string commonPrefix)
+        private void WriteSerializedInfoFields(StringBuilder sourceBuilder, SerializedInfo serializedInfo, IReadOnlyList<string> prePathChains)
+        {
+            if (serializedInfo.SubFields.Count == 0)
+            {
+                Debug.Assert(serializedInfo.SaintsPropertyType != SaintsPropertyType.ClassOrStruct);
+                Debug.Assert(serializedInfo.SaintsPropertyType != SaintsPropertyType.Undefined);
+                switch (serializedInfo.SaintsPropertyType)
+                {
+                    case SaintsPropertyType.EnumLong:
+                    {
+                        sourceBuilder.Append("        [global::SaintsField.Utils.SaintsSerializedActual(\n");
+
+                        IEnumerable<string> represent =
+                            prePathChains.Append(serializedInfo.ToAttrCompactString());
+
+                        sourceBuilder.Append(string.Join(",\n", represent.Select(each => $"            {each}")));
+
+                        sourceBuilder.Append("\n        )]\n");
+                        sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
+                        sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
+                        // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
+                        if(serializedInfo.TargetCollection == SaintsTargetCollection.FieldOrProperty)
+                        {
+                            sourceBuilder.Append(
+                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {serializedInfo.Name}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
+                        }
+                        else
+                        {
+                            sourceBuilder.Append(
+                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {serializedInfo.Name}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
+                        }
+
+                        sourceBuilder.Append("\n");
+                    }
+                        break;
+                    case SaintsPropertyType.EnumULong:
+                        break;
+                    case SaintsPropertyType.ClassOrStruct:
+                    case SaintsPropertyType.Undefined:
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(serializedInfo.SaintsPropertyType), serializedInfo.SaintsPropertyType, null);
+                }
+            }
+        }
+
+        private static SerializedInfo JsonElementToSerializedInfo(JsonElement jsonElement)
+        {
+            string name = jsonElement.GetProperty("Name").GetString();
+            bool isProperty = jsonElement.GetProperty("IsProperty").GetBoolean();
+            SaintsPropertyType saintsPropertyType = (SaintsPropertyType)jsonElement.GetProperty("SaintsPropertyType").GetInt32();
+            SaintsTargetCollection targetCollection = (SaintsTargetCollection)jsonElement.GetProperty("TargetCollection").GetInt32();
+
+            JsonElement.ArrayEnumerator subFieldsElement = jsonElement.GetProperty("SubFields").EnumerateArray();
+            List<SerializedInfo> subFields = new List<SerializedInfo>();
+            foreach (JsonElement subElement in subFieldsElement)
+            {
+                SerializedInfo subSerializedInfo = JsonElementToSerializedInfo(subElement);
+                subFields.Add(subSerializedInfo);
+            }
+
+            return new SerializedInfo(name, isProperty, targetCollection, saintsPropertyType, subFields);
+        }
+
+        private static string FindAssetPathNotIncluded(string commonPrefix)
         {
             List<string> parts = new List<string>(commonPrefix.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries));
             while (parts.Count > 0)
             {
                 if(parts[parts.Count - 1] == "Assets")
                 {
-                    string joinedPath = string.Join("/", parts);
-                    foreach (string subFolder in new string[]{"Packages", "ProjectSettings"})
+                    List<string> preParts = new List<string>(parts);
+                    preParts.RemoveAt(preParts.Count - 1);
+
+                    string joinedPath = string.Join("/", preParts);
+                    bool notFound = false;
+                    foreach (string subFolder in new[]{"Packages", "ProjectSettings"})
                     {
                         string subPath = $"{joinedPath}/{subFolder}";
-                        if (Directory.Exists(subPath))
+                        // DebugToFile(subPath);
+                        if (!Directory.Exists(subPath))
                         {
-                            return joinedPath;
+                            notFound = true;
+                            break;
+                            // return joinedPath;
                         }
+                    }
+
+                    if (!notFound)
+                    {
+                        return joinedPath;
                     }
                 }
                 parts.RemoveAt(parts.Count - 1);
@@ -453,11 +638,12 @@ namespace SaintsFieldSourceGenerator
 
         private static void DebugToFile(string toWrite)
         {
-            // const string filePath = @"C:\Users\tyler\AppData\Local\Temp\SaintsDebug.txt";
-            // using (StreamWriter writer = new StreamWriter(filePath, true, Encoding.UTF8))
-            // {
-            //     writer.WriteLine(toWrite);
-            // }
+
+            const string filePath = @"C:\Users\tyler\AppData\Local\Temp\SaintsDebug.txt";
+            using (StreamWriter writer = new StreamWriter(filePath, true, Encoding.UTF8))
+            {
+                writer.WriteLine(toWrite);
+            }
         }
 
     }
