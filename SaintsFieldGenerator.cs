@@ -6,7 +6,6 @@ using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using System.Text;
-using System.Text.Encodings.Web;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text.Json;
@@ -41,6 +40,8 @@ namespace SaintsFieldSourceGenerator
             [JsonInclude]
             public readonly string Name;
             [JsonInclude]
+            public readonly string ElementTypeName;
+            [JsonInclude]
             public readonly SaintsPropertyType SaintsPropertyType;
             // public readonly int SaintsPropertyType;
             [JsonInclude]
@@ -59,9 +60,10 @@ namespace SaintsFieldSourceGenerator
                 // return $"SerializedInfo: Name={Name}, IsProperty={IsProperty}, TargetCollection={TargetCollection}, SaintsPropertyType: {SaintsPropertyType}";
             }
 
-            public SerializedInfo(string name, bool isProperty, SaintsTargetCollection targetCollection, SaintsPropertyType saintsPropertyType, IReadOnlyList<SerializedInfo> subFields)
+            public SerializedInfo(string name, string elementTypeName, bool isProperty, SaintsTargetCollection targetCollection, SaintsPropertyType saintsPropertyType, IReadOnlyList<SerializedInfo> subFields)
             {
                 Name = name;
+                ElementTypeName = elementTypeName;
                 IsProperty = isProperty;
                 TargetCollection = targetCollection;
                 SaintsPropertyType = saintsPropertyType;
@@ -99,9 +101,13 @@ namespace SaintsFieldSourceGenerator
                         DebugToFile($"not in asset path: {tree.FilePath}");
                         continue;
                     }
+
+                    string rawContent = File.ReadAllText(norPath);
+                    string rawMd5 = CreateMD5(rawContent);
+
                     string relativePath = norPath.Substring(assetPathNotIncluded.Length + "/Assets".Length + 1);
                     // DebugToFile(relativePath);
-                    string configJsonFile = $"{assetPathNotIncluded}/Temp/SaintsField/{relativePath}.json";
+                    string configJsonFile = $"{assetPathNotIncluded}/Temp/SaintsField/{relativePath}.{rawMd5}.json";
                     if(!File.Exists(configJsonFile))
                     {
                         // DebugToFile($"no config json: {configJsonFile}");
@@ -127,17 +133,22 @@ namespace SaintsFieldSourceGenerator
                         DebugToFile($"serializedInfo={serializedInfo}");
                     }
 
+                    if (serializedInfos.Length == 0)
+                    {
+                        continue;
+                    }
+
                     string fileName = Path.GetFileName(tree.FilePath);
                     // DebugToFile(fileName);
                     CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
 
-                    List<string> usingNames = new List<string>();
+                    // List<string> usingNames = new List<string>();
 
-                    foreach (UsingDirectiveSyntax usingDirectiveSyntax in root.Usings)
-                    {
-                        // DebugToFile(usingDirectiveSyntax.Name);
-                        usingNames.Add(usingDirectiveSyntax.Name.ToString());
-                    }
+                    // foreach (UsingDirectiveSyntax usingDirectiveSyntax in root.Usings)
+                    // {
+                    //     // DebugToFile(usingDirectiveSyntax.Name);
+                    //     usingNames.Add(usingDirectiveSyntax.Name.ToString());
+                    // }
 
                     // return;
 
@@ -201,10 +212,10 @@ namespace SaintsFieldSourceGenerator
                                     DebugToFile($"GEN: {nameSpace}: {classDeclaration.Identifier.Text}");
 
                                     StringBuilder sourceBuilder = new StringBuilder();
-                                    foreach (string usingName in usingNames)
-                                    {
-                                        sourceBuilder.Append($"using {usingName};\n");
-                                    }
+                                    // foreach (string usingName in usingNames)
+                                    // {
+                                    //     sourceBuilder.Append($"using {usingName};\n");
+                                    // }
                                     sourceBuilder.Append($"namespace {nameSpace}\n{{\n");
                                     // sourceBuilder.Append($@"    {classDeclaration.Keyword} partial class {classDeclaration.Identifier.Text}\n    {{\n");
                                     sourceBuilder.Append(
@@ -212,20 +223,24 @@ namespace SaintsFieldSourceGenerator
 
                                     foreach (SerializedInfo serializedInfo in serializedInfos)
                                     {
-                                        WriteSerializedInfoFields(sourceBuilder, serializedInfo, Array.Empty<string>());
+                                        WriteSerializedInfoFields(sourceBuilder, serializedInfo, Array.Empty<SerializedInfo>());
                                     }
 
                                     sourceBuilder.Append("\n");
                                     sourceBuilder.Append("        public void OnBeforeSerialize()\n");
                                     sourceBuilder.Append("        {\n");
-                                    // foreach (SerializedInfo serializedInfo in serializedInfos)
-                                    // {
-                                    //     WriteBeforeInfoFields(sourceBuilder, serializedInfo, Array.Empty<string>());
-                                    // }
+                                    foreach (SerializedInfo serializedInfo in serializedInfos)
+                                    {
+                                        WriteOnBeforeSerialize(serializedInfo, sourceBuilder);
+                                    }
                                     sourceBuilder.Append("        }\n");
 
                                     sourceBuilder.Append("        public void OnAfterDeserialize()\n");
                                     sourceBuilder.Append("        {\n");
+                                    foreach (SerializedInfo serializedInfo in serializedInfos)
+                                    {
+                                        WriteOnAfterDeserialize(serializedInfo, sourceBuilder);
+                                    }
                                     sourceBuilder.Append("        }\n");
 
                                     sourceBuilder.Append("    }\n}");
@@ -436,47 +451,142 @@ namespace SaintsFieldSourceGenerator
             }
         }
 
-        private void WriteSerializedInfoFields(StringBuilder sourceBuilder, SerializedInfo serializedInfo, IReadOnlyList<string> prePathChains)
+        private static string MakeNameBase(IEnumerable<SerializedInfo> prePathChains)
         {
-            if (serializedInfo.SubFields.Count == 0)
+            return string.Join("__", prePathChains.Select(each => each.Name));
+        }
+
+        private static void WriteSerializedInfoFields(StringBuilder sourceBuilder, SerializedInfo serializedInfo, IReadOnlyList<SerializedInfo> prePathChains)
+        {
+            // if (serializedInfo.SubFields.Count == 0)
+            if (serializedInfo.TargetCollection == SaintsTargetCollection.List || serializedInfo.TargetCollection == SaintsTargetCollection.Array || serializedInfo.SubFields.Count == 0)
             {
                 Debug.Assert(serializedInfo.SaintsPropertyType != SaintsPropertyType.ClassOrStruct);
                 Debug.Assert(serializedInfo.SaintsPropertyType != SaintsPropertyType.Undefined);
                 switch (serializedInfo.SaintsPropertyType)
                 {
                     case SaintsPropertyType.EnumLong:
+                    case SaintsPropertyType.EnumULong:
                     {
-                        sourceBuilder.Append("        [global::SaintsField.Utils.SaintsSerializedActual(\n");
+                        sourceBuilder.Append($"        [global::SaintsField.Utils.SaintsSerializedActual(typeof(global::{serializedInfo.ElementTypeName})");
 
-                        IEnumerable<string> represent =
-                            prePathChains.Append(serializedInfo.ToAttrCompactString());
+                        SerializedInfo[] represent = prePathChains.Append(serializedInfo).ToArray();
+                        foreach (SerializedInfo eachPre in represent)
+                        {
+                            sourceBuilder.Append($",\n            {eachPre.ToAttrCompactString()}");
+                        }
 
-                        sourceBuilder.Append(string.Join(",\n", represent.Select(each => $"            {each}")));
+                        // sourceBuilder.Append(string.Join(",\n", represent.Select(each => $"            {each}")));
 
                         sourceBuilder.Append("\n        )]\n");
                         sourceBuilder.Append("        [global::UnityEngine.SerializeField]\n");
                         sourceBuilder.Append("        [global::SaintsField.SaintsRow(inline: true)]\n");
                         // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
+                        string nameBase = MakeNameBase(represent);
                         if(serializedInfo.TargetCollection == SaintsTargetCollection.FieldOrProperty)
                         {
                             sourceBuilder.Append(
-                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {serializedInfo.Name}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
+                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {nameBase}__SaintsSerialized__ = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty();\n");
                         }
                         else
                         {
                             sourceBuilder.Append(
-                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {serializedInfo.Name}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
+                                $"        private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {nameBase}__SaintsSerialized__ = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>();\n");
                         }
 
                         sourceBuilder.Append("\n");
                     }
                         break;
-                    case SaintsPropertyType.EnumULong:
-                        break;
                     case SaintsPropertyType.ClassOrStruct:
                     case SaintsPropertyType.Undefined:
                     default:
                         throw new ArgumentOutOfRangeException(nameof(serializedInfo.SaintsPropertyType), serializedInfo.SaintsPropertyType, null);
+                }
+
+                return;
+            }
+
+            foreach (SerializedInfo subField in serializedInfo.SubFields)
+            {
+                WriteSerializedInfoFields(sourceBuilder, subField, prePathChains.Append(serializedInfo).ToArray());
+            }
+        }
+
+        private static void WriteOnBeforeSerialize(SerializedInfo serializedInfo, StringBuilder sourceBuilder)
+        {
+            if(serializedInfo.TargetCollection != SaintsTargetCollection.FieldOrProperty)
+            {
+                sourceBuilder.Append("\n");
+                sourceBuilder.Append($"            if ({serializedInfo.Name} == null)\n");
+                sourceBuilder.Append("            {\n");
+                sourceBuilder.Append($"                {serializedInfo.Name} = ");
+                switch (serializedInfo.TargetCollection)
+                {
+                    case SaintsTargetCollection.Array:
+                        sourceBuilder.Append("global::System.Array.Empty<");
+                        sourceBuilder.Append($"global::{serializedInfo.ElementTypeName}");
+                        sourceBuilder.Append(">();\n");
+                        break;
+                    case SaintsTargetCollection.List:
+                        sourceBuilder.Append("new global::System.Collections.Generic.List<");
+                        sourceBuilder.Append($"global::{serializedInfo.ElementTypeName}");
+                        sourceBuilder.Append(">();\n");
+                        break;
+                }
+                sourceBuilder.Append("            }\n");
+            }
+
+            if(serializedInfo.SubFields.Count == 0)
+            {
+                switch (serializedInfo.TargetCollection)
+                {
+                    case SaintsTargetCollection.FieldOrProperty:
+                        sourceBuilder.Append(
+                            $"            {serializedInfo.Name}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({serializedInfo.Name}, typeof(global::{serializedInfo.ElementTypeName}));\n");
+                        break;
+                    case SaintsTargetCollection.Array:
+                    case SaintsTargetCollection.List:
+                        sourceBuilder.Append(
+                            $"            global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<global::{serializedInfo.ElementTypeName}>(ref {serializedInfo.Name}__SaintsSerialized__, {serializedInfo.Name}, typeof(global::{serializedInfo.ElementTypeName}));\n");
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+        }
+
+        private static void WriteOnAfterDeserialize(SerializedInfo serializedInfo, StringBuilder sourceBuilder)
+        {
+            if(serializedInfo.SubFields.Count == 0)
+            {
+                switch (serializedInfo.TargetCollection)
+                {
+                    case SaintsTargetCollection.FieldOrProperty:
+                        sourceBuilder.Append(
+                            $"            {serializedInfo.Name} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize<{serializedInfo.ElementTypeName}>({serializedInfo.Name}__SaintsSerialized__, typeof(global::{serializedInfo.ElementTypeName}));\n");
+                        break;
+                    case SaintsTargetCollection.Array:
+                        sourceBuilder.Append("\n");
+                        sourceBuilder.Append(
+                            $"            (bool {serializedInfo.Name}SaintsFieldFilled, global::{serializedInfo.ElementTypeName}[] {serializedInfo.Name}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<global::{serializedInfo.ElementTypeName}>({serializedInfo.Name}, {serializedInfo.Name}__SaintsSerialized__, typeof(global::{serializedInfo.ElementTypeName}));\n");
+                        sourceBuilder.Append($"            if(!{serializedInfo.Name}SaintsFieldFilled)\n");
+                        sourceBuilder.Append("            {\n");
+                        sourceBuilder.Append(
+                            $"                {serializedInfo.Name} = {serializedInfo.Name}SaintsFieldResult;\n");
+                        sourceBuilder.Append("            }\n");
+                        break;
+                    case SaintsTargetCollection.List:
+                        sourceBuilder.Append("\n");
+                        sourceBuilder.Append(
+                            $"            (bool {serializedInfo.Name}SaintsFieldFilled, global::System.Collections.Generic.List<global::{serializedInfo.ElementTypeName}> {serializedInfo.Name}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<global::{serializedInfo.ElementTypeName}>({serializedInfo.Name}, {serializedInfo.Name}__SaintsSerialized__, typeof(global::{serializedInfo.ElementTypeName}));\n");
+                        sourceBuilder.Append($"            if(!{serializedInfo.Name}SaintsFieldFilled)\n");
+                        sourceBuilder.Append("            {\n");
+                        sourceBuilder.Append(
+                            $"                {serializedInfo.Name} = {serializedInfo.Name}SaintsFieldResult;\n");
+                        sourceBuilder.Append("            }\n");
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
                 }
             }
         }
@@ -484,19 +594,22 @@ namespace SaintsFieldSourceGenerator
         private static SerializedInfo JsonElementToSerializedInfo(JsonElement jsonElement)
         {
             string name = jsonElement.GetProperty("Name").GetString();
+            string elementTypeName = jsonElement.GetProperty("ElementTypeName").GetString();
             bool isProperty = jsonElement.GetProperty("IsProperty").GetBoolean();
             SaintsPropertyType saintsPropertyType = (SaintsPropertyType)jsonElement.GetProperty("SaintsPropertyType").GetInt32();
             SaintsTargetCollection targetCollection = (SaintsTargetCollection)jsonElement.GetProperty("TargetCollection").GetInt32();
 
             JsonElement.ArrayEnumerator subFieldsElement = jsonElement.GetProperty("SubFields").EnumerateArray();
             List<SerializedInfo> subFields = new List<SerializedInfo>();
+
+            // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
             foreach (JsonElement subElement in subFieldsElement)
             {
                 SerializedInfo subSerializedInfo = JsonElementToSerializedInfo(subElement);
                 subFields.Add(subSerializedInfo);
             }
 
-            return new SerializedInfo(name, isProperty, targetCollection, saintsPropertyType, subFields);
+            return new SerializedInfo(name, elementTypeName, isProperty, targetCollection, saintsPropertyType, subFields);
         }
 
         private static string FindAssetPathNotIncluded(string commonPrefix)
@@ -636,14 +749,44 @@ namespace SaintsFieldSourceGenerator
             return prefix;
         }
 
+        public static string CreateMD5(string input)
+        {
+            // Use input string to calculate MD5 hash
+            // ReSharper disable once ConvertToUsingDeclaration
+            using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+            {
+                byte[] inputBytes = Encoding.ASCII.GetBytes(input);
+                byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+                // return Convert.ToHexString(hashBytes); // .NET 5 +
+
+                // Convert the byte array to hexadecimal string prior to .NET 5
+                StringBuilder sb = new StringBuilder();
+                foreach (byte hashByte in hashBytes)
+                {
+                    sb.Append(hashByte.ToString("X2"));
+                }
+                return sb.ToString();
+            }
+        }
+
+        private static string _tempFolderPath;
+
         private static void DebugToFile(string toWrite)
         {
+#if DEBUG
+            if(string.IsNullOrEmpty(_tempFolderPath))
+            {
+                _tempFolderPath = Path.GetTempPath();
+            }
 
-            const string filePath = @"C:\Users\tyler\AppData\Local\Temp\SaintsDebug.txt";
-            using (StreamWriter writer = new StreamWriter(filePath, true, Encoding.UTF8))
+            // const string filePath = @"C:\Users\tyler\AppData\Local\Temp\SaintsDebug.txt";
+            string tempFilePath = Path.Combine(_tempFolderPath, "SaintsDebug.txt");
+            using (StreamWriter writer = new StreamWriter(tempFilePath, true, Encoding.UTF8))
             {
                 writer.WriteLine(toWrite);
             }
+#endif
         }
 
     }
