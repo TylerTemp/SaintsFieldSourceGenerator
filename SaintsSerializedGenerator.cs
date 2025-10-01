@@ -288,27 +288,6 @@ namespace SaintsFieldSourceGenerator
 
             }
         }
-        // private ClassOrStructWriter ParseMemberDeclarationSyntax(MemberDeclarationSyntax memberDeclarationSyntax)
-        // {
-        //     ClassOrStructWriter rootWriter = new ClassOrStructWriter();
-        //     switch (memberDeclarationSyntax.Kind())
-        //     {
-        //         case SyntaxKind.NamespaceDeclaration:
-        //         {
-        //             NamespaceDeclarationSyntax namespaceDeclarationSyntax =
-        //                 (NamespaceDeclarationSyntax)memberDeclarationSyntax;
-        //
-        //             string nameSpace = namespaceDeclarationSyntax.Name.ToString();
-        //
-        //             rootWriter.NamespaceName = nameSpace;
-        //
-        //             IEnumerable<ClassOrStructWriter> nameSpaceResult =
-        //                 ParseNamespace(namespaceDeclarationSyntax);
-        //
-        //         }
-        //             break;
-        //     }
-        // }
 
         private ScoopedWriter ParseNamespace(NamespaceDeclarationSyntax namespaceDeclarationSyntax)
         {
@@ -467,7 +446,7 @@ namespace SaintsFieldSourceGenerator
                         break;
                     case SyntaxKind.ClassDeclaration:
                     {
-                        var classR = ParseClassDeclarationSyntax((ClassDeclarationSyntax)member);
+                        ClassOrStructWriter classR = ParseClassDeclarationSyntax((ClassDeclarationSyntax)member);
                         if (classR != null)
                         {
                             subWriters.Add(classR);
@@ -476,7 +455,7 @@ namespace SaintsFieldSourceGenerator
                         break;
                     case SyntaxKind.StructDeclaration:
                     {
-                        var structR = ParseStructDeclarationSyntax((StructDeclarationSyntax)member);
+                        ClassOrStructWriter structR = ParseStructDeclarationSyntax((StructDeclarationSyntax)member);
                         if (structR != null)
                         {
                             subWriters.Add(structR);
@@ -655,6 +634,15 @@ namespace SaintsFieldSourceGenerator
                             || attrName == "SerializeField" || attrName == "UnityEngine.SerializeField" || attrName == "global::UnityEngine.SerializeField")
                     {
                         // ignore
+                    }
+                    else if(attrName == "FormerlySerializedAs" || attrName == "Serialization.FormerlySerializedAs" || attrName == "UnityEngine.Serialization.FormerlySerializedAs" || attrName == "global::UnityEngine.Serialization.FormerlySerializedAs")
+                    {
+                        AttributeArgumentListSyntax argList = attributeSyntax.ArgumentList;
+                        if (argList != null && argList.Arguments.Count == 1)
+                        {
+                            AttributeArgumentSyntax arg = argList.Arguments[0];
+                            extraAttributes.Add($"global::UnityEngine.Serialization.FormerlySerializedAs({arg.ToString()} + \"__SaintsSerialized__\")");
+                        }
                     }
                     else
                     {
