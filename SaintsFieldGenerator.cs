@@ -89,8 +89,15 @@ namespace SaintsFieldSourceGenerator
             }
         }
 
+        private bool _generated;
+
         public void Execute(GeneratorExecutionContext context)
         {
+            // if (_generated)
+            // {
+            //     DebugToFile("Skipping generation, already done once.");
+            //     return;
+            // }
             string commonPrefix =
                 LongestCommonPrefix(context.Compilation.SyntaxTrees.Select(each => each.FilePath).ToArray());
             // DebugToFile($"Common Prefix: {commonPrefix}");
@@ -113,10 +120,10 @@ namespace SaintsFieldSourceGenerator
 
             foreach (string jsonConfigFile in Directory.GetFiles(saintsFieldConfigJsonFolder, "*.json", SearchOption.TopDirectoryOnly))
             {
-                if (File.Exists(jsonConfigFile + ".g"))
-                {
-                    continue;
-                }
+                // if (File.Exists(jsonConfigFile + ".g"))
+                // {
+                //     continue;
+                // }
 
                 GenInfo gi = JsonSerializer.Deserialize<GenInfo>(File.ReadAllText(jsonConfigFile));
                 string fileNameNoExt = Path.GetFileNameWithoutExtension(jsonConfigFile);
@@ -132,11 +139,14 @@ namespace SaintsFieldSourceGenerator
 
                 DebugToFile($"generate as {fileNameNoExt}");
 
-                // context.AddSource($"{fileNameNoExt.Replace(".", "_")}.SaintsSerialized.cs", SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
-                context.AddSource($"SerEnumULong.cs", SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
+                string sourceGen = sourceBuilder.ToString();
+                context.AddSource($"{fileNameNoExt.Replace(".", "_")}.SaintsSerialized.cs", SourceText.From(sourceBuilder.ToString(), Encoding.UTF8));
+                // context.AddSource($"SerEnumULong.cs", SourceText.From(sourceGen, Encoding.UTF8));
 
-                File.WriteAllText(jsonConfigFile + ".g", "");
+                File.WriteAllText(jsonConfigFile + ".g", sourceGen);
             }
+
+            _generated = true;
             // DebugToFile($"Found Asset Path: {assetPathNotIncluded}");
 
             // try
