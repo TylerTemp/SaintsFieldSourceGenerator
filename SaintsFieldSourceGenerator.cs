@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace SaintsFieldSourceGenerator
 {
     [Generator]
-    public class SaintsSerializedGenerator : ISourceGenerator
+    public class SaintsFieldSourceGenerator : ISourceGenerator
     {
 
         private interface IWriter
@@ -631,7 +631,8 @@ namespace SaintsFieldSourceGenerator
                         // ));
                     }
                     else if(attrName == "NonSerialized" || attrName == "System.NonSerialized" || attrName == "global::System.NonSerialized"
-                            || attrName == "SerializeField" || attrName == "UnityEngine.SerializeField" || attrName == "global::UnityEngine.SerializeField")
+                            || attrName == "SerializeField" || attrName == "UnityEngine.SerializeField" || attrName == "global::UnityEngine.SerializeField"
+                            || attrName == "HideInInspector" || attrName == "UnityEngine.HideInInspector" || attrName == "global::UnityEngine.HideInInspector")
                     {
                         // ignore
                     }
