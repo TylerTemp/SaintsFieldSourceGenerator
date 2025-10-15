@@ -277,13 +277,21 @@ namespace SaintsFieldSourceGenerator
             }
             if (genSerInfo.IsDateTime())
             {
-                yield return "[DateTime]\n";
+                yield return "[global::SaintsField.DateTime]\n";
+            }
+            else if (genSerInfo.IsTimeSpan())
+            {
+                yield return "[global::SaintsField.TimeSpan]\n";
             }
 
             // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
             if (genSerInfo.CollectionType == CollectionType.None)
             {
                 if(genSerInfo.IsDateTime())
+                {
+                    yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
+                }
+                else if (genSerInfo.IsTimeSpan())
                 {
                     yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
                 }
@@ -300,6 +308,13 @@ namespace SaintsFieldSourceGenerator
             else
             {
                 if(genSerInfo.IsDateTime())
+                {
+                    string equal = isClass
+                        ? " = global::System.Array.Empty<long>()"
+                        : "";
+                    yield return $"private long[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                }
+                else if(genSerInfo.IsTimeSpan())
                 {
                     string equal = isClass
                         ? " = global::System.Array.Empty<long>()"
@@ -532,6 +547,11 @@ namespace SaintsFieldSourceGenerator
                         yield return
                             $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDateTime({genSerInfo.FieldName});\n";
                     }
+                    else if (genSerInfo.IsTimeSpan())
+                    {
+                        yield return
+                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeTimeSpan({genSerInfo.FieldName});\n";
+                    }
                     else
                     {
                         yield return
@@ -544,6 +564,10 @@ namespace SaintsFieldSourceGenerator
                     if(genSerInfo.IsDateTime())
                     {
                         yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionDateTime(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                    }
+                    else if(genSerInfo.IsTimeSpan())
+                    {
+                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionTimeSpan(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
                     }
                     else
                     {
@@ -567,6 +591,11 @@ namespace SaintsFieldSourceGenerator
                         yield return
                             $"{genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDateTime({genSerInfo.FieldName}__SaintsSerialized__);\n";
                     }
+                    else if (genSerInfo.IsTimeSpan())
+                    {
+                        yield return
+                            $"{genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeTimeSpan({genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    }
                     else
                     {
                         yield return
@@ -579,7 +608,12 @@ namespace SaintsFieldSourceGenerator
                     if (genSerInfo.IsDateTime())
                     {
                         yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    }
+                    else if (genSerInfo.IsTimeSpan())
+                    {
+                        yield return
+                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
                     }
                     else
                     {
@@ -599,6 +633,11 @@ namespace SaintsFieldSourceGenerator
                     {
                         yield return
                             $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    }
+                    else if (genSerInfo.IsTimeSpan())
+                    {
+                        yield return
+                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
                     }
                     else
                     {
@@ -693,6 +732,12 @@ namespace SaintsFieldSourceGenerator
             {
                 return FieldType == "DateTime" || FieldType == "System.DateTime" ||
                        FieldType == "global::System.DateTime";
+            }
+
+            public bool IsTimeSpan()
+            {
+                return FieldType == "TimeSpan" || FieldType == "System.TimeSpan" ||
+                       FieldType == "global::System.TimeSpan";
             }
         }
 
