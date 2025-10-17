@@ -555,7 +555,7 @@ namespace SaintsFieldSourceGenerator
                     else
                     {
                         yield return
-                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
+                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
                     }
                 }
                     break;
