@@ -175,8 +175,8 @@ namespace SaintsFieldSourceGenerator
                     // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
                     foreach (UsingDirectiveSyntax usingDirectiveSyntax in root.Usings)
                     {
-                        // DebugToFile(usingDirectiveSyntax.Name);
-                        usingNames.Add(usingDirectiveSyntax.Name.ToString());
+                        // DebugToFile(usingDirectiveSyntax.ToString());
+                        usingNames.Add(usingDirectiveSyntax.ToString());
                     }
 
                     List<IWriter> writers = new List<IWriter>();
@@ -232,7 +232,7 @@ namespace SaintsFieldSourceGenerator
                     StringBuilder sourceBuilder = new StringBuilder();
                     foreach (string usingName in usingNames)
                     {
-                        sourceBuilder.Append($"using {usingName};\n");
+                        sourceBuilder.Append($"{usingName}\n");
                     }
 
                     foreach (IWriter writer in writers)
