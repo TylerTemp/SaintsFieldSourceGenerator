@@ -270,58 +270,59 @@ namespace SaintsFieldSourceGenerator
         {
             yield return "[global::UnityEngine.SerializeField]\n";
             yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n";
+            // yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
             yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
             if(genSerInfo.Attributes.Count > 0)
             {
                 yield return $"[{string.Join(", ", genSerInfo.Attributes)}]\n";
             }
-            if (genSerInfo.IsDateTime())
-            {
-                yield return "[global::SaintsField.DateTime]\n";
-            }
-            else if (genSerInfo.IsTimeSpan())
-            {
-                yield return "[global::SaintsField.TimeSpan]\n";
-            }
+            // if (genSerInfo.IsDateTime())
+            // {
+            //     yield return "[global::SaintsField.DateTime]\n";
+            // }
+            // else if (genSerInfo.IsTimeSpan())
+            // {
+            //     yield return "[global::SaintsField.TimeSpan]\n";
+            // }
 
             // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
             if (genSerInfo.CollectionType == CollectionType.None)
             {
-                if(genSerInfo.IsDateTime())
-                {
-                    yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
-                }
-                else if (genSerInfo.IsTimeSpan())
-                {
-                    yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
-                }
-                else
-                {
+                // if(genSerInfo.IsDateTime())
+                // {
+                //     yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
+                // }
+                // else if (genSerInfo.IsTimeSpan())
+                // {
+                //     yield return $"private long {genSerInfo.FieldName}__SaintsSerialized__;\n";
+                // }
+                // else
+                // {
                     string equal = isClass
                         ? " = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty()"
                         : "";
                     yield return
                         $"private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
-                }
+                // }
 
             }
             else
             {
-                if(genSerInfo.IsDateTime())
-                {
-                    string equal = isClass
-                        ? " = global::System.Array.Empty<long>()"
-                        : "";
-                    yield return $"private long[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
-                }
-                else if(genSerInfo.IsTimeSpan())
-                {
-                    string equal = isClass
-                        ? " = global::System.Array.Empty<long>()"
-                        : "";
-                    yield return $"private long[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
-                }
-                else
+                // if(genSerInfo.IsDateTime())
+                // {
+                //     string equal = isClass
+                //         ? " = global::System.Array.Empty<long>()"
+                //         : "";
+                //     yield return $"private long[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                // }
+                // else if(genSerInfo.IsTimeSpan())
+                // {
+                //     string equal = isClass
+                //         ? " = global::System.Array.Empty<long>()"
+                //         : "";
+                //     yield return $"private long[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                // }
+                // else
                 {
                     string equal = isClass
                         ? " = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>()"
@@ -385,16 +386,35 @@ namespace SaintsFieldSourceGenerator
 
         private ClassOrStructWriter ParseClassDeclarationSyntax(ClassDeclarationSyntax classDeclaration)
         {
-            return ParseClassOrStructDeclarationSyntax(true, classDeclaration.Modifiers, classDeclaration.Identifier.Text, classDeclaration.Members);
+            return ParseClassOrStructDeclarationSyntax(
+                true,
+                classDeclaration.Modifiers,
+                classDeclaration.Identifier.Text,
+                classDeclaration.TypeParameterList,
+                classDeclaration.ConstraintClauses,
+                classDeclaration.Members);
 
         }
 
         private ClassOrStructWriter ParseStructDeclarationSyntax(StructDeclarationSyntax structDeclaration)
         {
-            return ParseClassOrStructDeclarationSyntax(false, structDeclaration.Modifiers, structDeclaration.Identifier.Text, structDeclaration.Members);
+            return ParseClassOrStructDeclarationSyntax(
+                false,
+                structDeclaration.Modifiers,
+                structDeclaration.Identifier.Text,
+                structDeclaration.TypeParameterList,
+                structDeclaration.ConstraintClauses,
+                structDeclaration.Members);
         }
 
-        private ClassOrStructWriter ParseClassOrStructDeclarationSyntax(bool isClass, SyntaxTokenList modifiers, string identifierText, SyntaxList<MemberDeclarationSyntax> members)
+        private ClassOrStructWriter ParseClassOrStructDeclarationSyntax(
+            bool isClass,
+            SyntaxTokenList modifiers,
+            string identifierText,
+            TypeParameterListSyntax typeParameterList,
+            SyntaxList<TypeParameterConstraintClauseSyntax> constraintClauses,
+            SyntaxList<MemberDeclarationSyntax> members
+        )
         {
             bool isPartial = false;
             List<string> modifiersList = new List<string>();
@@ -416,7 +436,12 @@ namespace SaintsFieldSourceGenerator
                 return null;
             }
 
-            string declare = $"{string.Join(" ", modifiersList)} {(isClass? "class": "struct")} {identifierText}";
+            string typeParams = typeParameterList?.ToString() ?? "";
+            string constraints = constraintClauses.Count > 0
+                ? " " + string.Join(" ", constraintClauses.Select(c => c.ToString()))
+                : "";
+
+            string declare = $"{string.Join(" ", modifiersList)} {(isClass? "class": "struct")} {identifierText}{typeParams}{constraints}";
 
             // sourceBuilder.Append($"namespace {nameSpace}\n{{\n");
             // // sourceBuilder.Append($@"    {classDeclaration.Keyword} partial class {classDeclaration.Identifier.Text}\n    {{\n");
@@ -542,34 +567,50 @@ namespace SaintsFieldSourceGenerator
             {
                 case CollectionType.None:
                 {
-                    if(genSerInfo.IsDateTime())
+                    // if(genSerInfo.IsDateTime())
+                    // {
+                    //
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.DateTime)\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDateTime({genSerInfo.FieldName});\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else if (genSerInfo.IsTimeSpan())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.TimeSpan)\n";
+                    //     yield return $"{{\n";
+                    //     yield return
+                    //         $"    {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeTimeSpan({genSerInfo.FieldName});\n";
+                    //     yield return $"}}\n";
+                    //
+                    // }
+                    // else
                     {
-                        yield return
-                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDateTime({genSerInfo.FieldName});\n";
-                    }
-                    else if (genSerInfo.IsTimeSpan())
-                    {
-                        yield return
-                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeTimeSpan({genSerInfo.FieldName});\n";
-                    }
-                    else
-                    {
-                        yield return
-                            $"{genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"(bool {genSerInfo.FieldName}Ok, global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}Result) = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"if ({genSerInfo.FieldName}Ok)\n";
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
+                        yield return $"}}\n";
                     }
                 }
                     break;
                 case CollectionType.Array:
                 case CollectionType.List:
-                    if(genSerInfo.IsDateTime())
-                    {
-                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionDateTime(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
-                    }
-                    else if(genSerInfo.IsTimeSpan())
-                    {
-                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionTimeSpan(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
-                    }
-                    else
+                    // if(genSerInfo.IsDateTime())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is System.Collections.Generic.IReadOnlyList<global::System.DateTime>)\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionDateTime(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else if(genSerInfo.IsTimeSpan())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is System.Collections.Generic.IReadOnlyList<global::System.TimeSpan>)\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionTimeSpan(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else
                     {
                         yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<{genSerInfo.FieldType}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
                     }
@@ -586,68 +627,101 @@ namespace SaintsFieldSourceGenerator
             {
                 case CollectionType.None:
                 {
-                    if (genSerInfo.IsDateTime())
+                    // if (genSerInfo.IsDateTime())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.DateTime)\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    {genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDateTime({genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else if (genSerInfo.IsTimeSpan())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.TimeSpan)\n";
+                    //     yield return $"{{\n";
+                    //     yield return
+                    //         $"    {genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeTimeSpan({genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else
                     {
-                        yield return
-                            $"{genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDateTime({genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else if (genSerInfo.IsTimeSpan())
-                    {
-                        yield return
-                            $"{genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeTimeSpan({genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else
-                    {
-                        yield return
-                            $"{genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize<{genSerInfo.FieldType}>({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"(bool {genSerInfo.FieldName}Ok, {genSerInfo.FieldType} {genSerInfo.FieldName}Result) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize<{genSerInfo.FieldType}>({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"if({genSerInfo.FieldName}Ok)\n";
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
+                        yield return $"}}\n";
                     }
                 }
                     break;
                 case CollectionType.Array:
                 {
-                    if (genSerInfo.IsDateTime())
-                    {
-                        yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else if (genSerInfo.IsTimeSpan())
-                    {
-                        yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else
+                    // if (genSerInfo.IsDateTime())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.DateTime[])\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    (bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"    if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                    //     yield return $"    {{\n";
+                    //     yield return $"        {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                    //     yield return $"    }}\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else if (genSerInfo.IsTimeSpan())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.DateTime[])\n";
+                    //     yield return $"{{\n";
+                    //     yield return
+                    //         $"    (bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArrayTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"    if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                    //     yield return $"    {{\n";
+                    //     yield return $"        {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                    //     yield return $"    }}\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else
                     {
                         yield return
                             $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                        yield return "{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                        yield return "}\n";
                     }
-
-                    yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
-                    yield return "{\n";
-                    yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
-                    yield return "}\n";
                 }
                     break;
                 case CollectionType.List:
                 {
-                    if (genSerInfo.IsDateTime())
-                    {
-                        yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else if (genSerInfo.IsTimeSpan())
-                    {
-                        yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
-                    }
-                    else
+                    // if (genSerInfo.IsDateTime())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.Collections.Generic.List<global::System.DateTime>)\n";
+                    //     yield return $"{{\n";
+                    //     yield return $"    (bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListDateTime({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"    if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                    //     yield return $"    {{\n";
+                    //     yield return $"        {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                    //     yield return $"    }}\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else if (genSerInfo.IsTimeSpan())
+                    // {
+                    //     yield return $"if({genSerInfo.FieldName} is global::System.Collections.Generic.List<global::System.TimeSpan>)\n";
+                    //     yield return $"{{\n";
+                    //     yield return
+                    //         $"    (bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeListTimeSpan({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                    //     yield return $"    if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                    //     yield return $"    {{\n";
+                    //     yield return $"        {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                    //     yield return $"    }}\n";
+                    //     yield return $"}}\n";
+                    // }
+                    // else
                     {
                         yield return
                             $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                        yield return $"}}\n";
                     }
-                    yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
-                    yield return "{\n";
-                    yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
-                    yield return "}\n";
                 }
                     break;
                 default:
