@@ -269,8 +269,8 @@ namespace SaintsFieldSourceGenerator
         private static IEnumerable<string> WriteGenSerInfoFields(bool isClass, GenSerInfo genSerInfo)
         {
             yield return "[global::UnityEngine.SerializeField]\n";
-            yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n";
-            // yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
+            // yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n";
+            yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
             yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
             if(genSerInfo.Attributes.Count > 0)
             {
