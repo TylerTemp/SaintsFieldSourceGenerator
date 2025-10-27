@@ -1,5 +1,7 @@
-﻿using System;
+﻿// ReSharper disable RedundantStringInterpolation
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
@@ -7,6 +9,8 @@ using Microsoft.CodeAnalysis.Text;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Runtime.CompilerServices;
+
 
 namespace SaintsFieldSourceGenerator
 {
@@ -271,7 +275,10 @@ namespace SaintsFieldSourceGenerator
             yield return "[global::UnityEngine.SerializeField]\n";
             // yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n";
             yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
-            yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
+            if(genSerInfo.SerializationType != SerializationType.Dictionary)
+            {
+                yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
+            }
             if(genSerInfo.Attributes.Count > 0)
             {
                 yield return $"[{string.Join(", ", genSerInfo.Attributes)}]\n";
@@ -298,16 +305,39 @@ namespace SaintsFieldSourceGenerator
                 // }
                 // else
                 // {
-                    string equal = isClass
-                        ? " = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty()"
-                        : "";
-                    yield return
-                        $"private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    string equal;
+                    if (isClass)
+                    {
+                        if (genSerInfo.SerializationType == SerializationType.Dictionary)
+                        {
+                            equal = $" = new global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>()";
+                        }
+                        else
+                        {
+                            equal = " = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty()";
+                        }
+                    }
+                    else
+                    {
+                        equal = "";
+                    }
+
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
+                    {
+                        yield return
+                            $"private global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
+                    else
+                    {
+                        yield return
+                            $"private global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
                 // }
 
             }
             else
             {
+                DebugToFile($"genSerInfo.SerializationType={genSerInfo.SerializationType} for {genSerInfo.FieldName}");
                 // if(genSerInfo.IsDateTime())
                 // {
                 //     string equal = isClass
@@ -324,11 +354,35 @@ namespace SaintsFieldSourceGenerator
                 // }
                 // else
                 {
-                    string equal = isClass
-                        ? " = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>()"
-                        : "";
-                    yield return
-                        $"private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    string equal;
+                    if (isClass)
+                    {
+                        if (genSerInfo.SerializationType == SerializationType.Dictionary)
+                        {
+                            equal = $" = global::System.Array.Empty<global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>>()";
+                        }
+                        else
+                        {
+                            equal =
+                                " = global::System.Array.Empty<global::SaintsField.SaintsSerialization.SaintsSerializedProperty>()";
+                        }
+
+                    }
+                    else
+                    {
+                        equal = "";
+                    }
+
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
+                    {
+                        yield return
+                            $"private global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
+                    else
+                    {
+                        yield return
+                            $"private global::SaintsField.SaintsSerialization.SaintsSerializedProperty[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
                 }
             }
         }
@@ -474,7 +528,7 @@ namespace SaintsFieldSourceGenerator
                     {
                         FieldDeclarationSyntax fieldDeclarationSyntax = (FieldDeclarationSyntax)member;
                         TypeSyntax varType = fieldDeclarationSyntax.Declaration.Type;
-                        DebugToFile(varType.ToString());
+                        // DebugToFile(varType.ToString());
 
                         ICollection<string> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
                         if (attributeStrings != null)
@@ -496,9 +550,9 @@ namespace SaintsFieldSourceGenerator
                         PropertyDeclarationSyntax propertyDeclarationSyntax =
                             (PropertyDeclarationSyntax)member;
                         TypeSyntax varType = propertyDeclarationSyntax.Type;
-                        DebugToFile(varType.ToString());
+                        // DebugToFile(varType.ToString());
                         SyntaxToken identifier = propertyDeclarationSyntax.Identifier;
-                        DebugToFile(identifier.Text);
+                        // DebugToFile(identifier.Text);
 
                         ICollection<string> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
                         if (attributeStrings != null)
@@ -547,15 +601,29 @@ namespace SaintsFieldSourceGenerator
             {
                 yield return $"if ({genSerInfo.FieldName} == null)\n";
                 yield return "{\n";
-                string equal = null;
+                string equal;
+                string fieldTypeString;
+                switch (genSerInfo.SerializationType)
+                {
+                    case SerializationType.Dictionary:
+                        fieldTypeString = $"global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>";
+                        break;
+                    case SerializationType.Default:
+                    default:
+                        fieldTypeString = genSerInfo.FieldTypes[0];
+                        break;
+                }
                 switch (genSerInfo.CollectionType)
                 {
                     case CollectionType.Array:
-                        equal = $"global::System.Array.Empty<{genSerInfo.FieldType}>()";
+                        equal = $"global::System.Array.Empty<{fieldTypeString}>()";
                         break;
                     case CollectionType.List:
-                        equal = $"new global::System.Collections.Generic.List<{genSerInfo.FieldType}>()";
+                        equal = $"new global::System.Collections.Generic.List<{fieldTypeString}>()";
                         break;
+                    case CollectionType.None:
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(genSerInfo.SerializationType), genSerInfo.SerializationType, null);
                 }
 
                 yield return $"    {genSerInfo.FieldName} = {equal};\n";
@@ -584,9 +652,20 @@ namespace SaintsFieldSourceGenerator
                     //     yield return $"}}\n";
                     //
                     // }
-                    // else
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
-                        yield return $"(bool {genSerInfo.FieldName}Ok, global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}Result) = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"(bool {genSerInfo.FieldName}Assign, global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) "
+                            + $"= global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                        yield return $"if ({genSerInfo.FieldName}Assign)\n";
+                        // ReSharper disable once ExtractCommonBranchingCode
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
+                        yield return $"}}\n";
+                    }
+                    else
+                    {
+                        yield return $"(bool {genSerInfo.FieldName}Ok, global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}Result) = "
+                            + $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldTypes[0]}));\n";
                         yield return $"if ({genSerInfo.FieldName}Ok)\n";
                         yield return $"{{\n";
                         yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
@@ -610,9 +689,13 @@ namespace SaintsFieldSourceGenerator
                     //     yield return $"    global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionTimeSpan(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
                     //     yield return $"}}\n";
                     // }
-                    // else
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
-                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<{genSerInfo.FieldType}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                    }
+                    else
+                    {
+                        yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollection<{genSerInfo.FieldTypes[0]}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldTypes[0]}));\n";
                     }
 
                     break;
@@ -642,9 +725,25 @@ namespace SaintsFieldSourceGenerator
                     //         $"    {genSerInfo.FieldName} = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeTimeSpan({genSerInfo.FieldName}__SaintsSerialized__);\n";
                     //     yield return $"}}\n";
                     // }
-                    // else
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
-                        yield return $"(bool {genSerInfo.FieldName}Ok, {genSerInfo.FieldType} {genSerInfo.FieldName}Result) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize<{genSerInfo.FieldType}>({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"(bool {genSerInfo.FieldName}Assign, global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) = "
+                                     + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                        yield return $"if({genSerInfo.FieldName}Assign)\n";
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
+                        yield return $"}}\n";
+
+                        // No, this will break the serialization either
+                        // yield return $"if({genSerInfo.FieldName} == null)\n";
+                        // yield return $"{{\n";
+                        // yield return $"    {genSerInfo.FieldName} = new global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>();\n";
+                        // yield return $"}}\n";
+                    }
+                    else
+                    {
+                        yield return $"(bool {genSerInfo.FieldName}Ok, {genSerInfo.FieldTypes[0]} {genSerInfo.FieldName}Result) = "
+                                     + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserialize<{genSerInfo.FieldTypes[0]}>({genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldTypes[0]}));\n";
                         yield return $"if({genSerInfo.FieldName}Ok)\n";
                         yield return $"{{\n";
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
@@ -677,10 +776,21 @@ namespace SaintsFieldSourceGenerator
                     //     yield return $"    }}\n";
                     //     yield return $"}}\n";
                     // }
-                    // else
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
                         yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldType}[] {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}SaintsFieldResult) = "
+                            + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDictionaryArray<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                        yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                        yield return "{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                        yield return "}\n";
+                    }
+                    else
+                    {
+                        yield return
+                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, {genSerInfo.FieldTypes[0]}[] {genSerInfo.FieldName}SaintsFieldResult) = "
+                            + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeArray<{genSerInfo.FieldTypes[0]}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldTypes[0]}));\n";
                         yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
                         yield return "{\n";
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
@@ -713,10 +823,19 @@ namespace SaintsFieldSourceGenerator
                     //     yield return $"    }}\n";
                     //     yield return $"}}\n";
                     // }
-                    // else
+                    if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
-                        yield return
-                            $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldType}> {genSerInfo.FieldName}SaintsFieldResult) = global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldType}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldType}));\n";
+                        yield return $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>> {genSerInfo.FieldName}SaintsFieldResult) = "
+                                     + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeDictionaryList<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                        yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                        yield return $"{{\n";
+                        yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                        yield return $"}}\n";
+                    }
+                    else
+                    {
+                        yield return $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<{genSerInfo.FieldTypes[0]}> {genSerInfo.FieldName}SaintsFieldResult) = "
+                                     + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeList<{genSerInfo.FieldTypes[0]}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__, typeof({genSerInfo.FieldTypes[0]}));\n";
                         yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
                         yield return $"{{\n";
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
@@ -765,6 +884,12 @@ namespace SaintsFieldSourceGenerator
             return string.Empty;
         }
 
+        private enum SerializationType
+        {
+            Default,
+            Dictionary,
+        }
+
         private enum CollectionType
         {
             None,
@@ -775,44 +900,81 @@ namespace SaintsFieldSourceGenerator
         private readonly struct GenSerInfo
         {
             // public readonly bool IsProperty;
+            public readonly SerializationType SerializationType;
             public readonly CollectionType CollectionType;
-            public readonly string FieldType;
+            public readonly IReadOnlyList<string> FieldTypes;
             public readonly string FieldName;
             public readonly ICollection<string> Attributes;
 
             public GenSerInfo(string fieldType, string fieldName, ICollection<string> attributes)
             {
+                FieldName = fieldName;
+                Attributes = attributes;
+
                 // IsProperty = isProperty;
                 if (fieldType.EndsWith("[]"))
                 {
                     CollectionType = CollectionType.Array;
-                    FieldType = fieldType.Substring(0, fieldType.Length - 2);
+                    string rawTypeString = fieldType.Substring(0, fieldType.Length - 2);
+                    (SerializationType, FieldTypes) = ParseType(rawTypeString);
+                    DebugToFile($"Parse GenSerInfo SerializationType={SerializationType} CollectionType={CollectionType} for {FieldName} with {rawTypeString}");
                 }
                 else if(fieldType.StartsWith("List<") && fieldType.EndsWith(">"))
                 {
                     CollectionType = CollectionType.List;
-                    FieldType = fieldType.Substring(5, fieldType.Length - 6);
+                    (SerializationType, FieldTypes) = ParseType(fieldType.Substring(5, fieldType.Length - 6));
                 }
                 else
                 {
                     CollectionType = CollectionType.None;
-                    FieldType = fieldType;
+                    (SerializationType, FieldTypes) = ParseType(fieldType);
                 }
-                FieldName = fieldName;
-                Attributes = attributes;
+
+
+                DebugToFile($"New GenSerInfo SerializationType={SerializationType} CollectionType={CollectionType} for {FieldName}");
             }
 
-            public bool IsDateTime()
+            private static readonly string[] DictionaryTypePref =
             {
-                return FieldType == "DateTime" || FieldType == "System.DateTime" ||
-                       FieldType == "global::System.DateTime";
+                "Dictionary<",
+                "Generic.Dictionary<",
+                "Collections.Generic.Dictionary<",
+                "System.Collections.Generic.Dictionary<",
+                "global::System.Collections.Generic.Dictionary<",
+            };
+
+            private static (SerializationType serializationType, IReadOnlyList<string> fieldTypes) ParseType(string typeString)
+            {
+                foreach (string checkDict in DictionaryTypePref)
+                {
+                    if (typeString.StartsWith(checkDict))
+                    {
+                        string rawType = typeString
+                            .Substring(checkDict.Length, typeString.Length - checkDict.Length - 1);
+                        DebugToFile($"Found dictionary of type {rawType}");
+                        return (
+                            SerializationType.Dictionary,
+                            rawType.Split(',')
+                                .Select(each => each.Trim())
+                                .ToArray());
+
+                    }
+                }
+
+                return (SerializationType.Default, new []{typeString});
             }
 
-            public bool IsTimeSpan()
-            {
-                return FieldType == "TimeSpan" || FieldType == "System.TimeSpan" ||
-                       FieldType == "global::System.TimeSpan";
-            }
+            // public bool IsDateTime()
+            // {
+            //     return FieldType == "DateTime" || FieldType == "System.DateTime" ||
+            //            FieldType == "global::System.DateTime";
+            // }
+            //
+            // public bool IsTimeSpan()
+            // {
+            //     return FieldType == "TimeSpan" || FieldType == "System.TimeSpan" ||
+            //            FieldType == "global::System.TimeSpan";
+            // }
         }
 
         private static ICollection<string> FoundGenSerInfo(SyntaxList<AttributeListSyntax> attributes)
@@ -825,7 +987,7 @@ namespace SaintsFieldSourceGenerator
             {
                 foreach (AttributeSyntax attributeSyntax in attributeList.Attributes)
                 {
-                    DebugToFile(attributeSyntax.Name.ToString());
+                    // DebugToFile(attributeSyntax.Name.ToString());
                     string attrName = attributeSyntax.Name.ToString();
                     switch (attrName)
                     {
@@ -907,7 +1069,7 @@ namespace SaintsFieldSourceGenerator
 #endif
 
         // ReSharper disable once UnusedParameter.Local
-        private static void DebugToFile(string toWrite)
+        private static void DebugToFile(string toWrite, [CallerLineNumber] int lineNumber = 0)
         {
 #if DEBUG
             if(string.IsNullOrEmpty(_tempFolderPath))
@@ -919,7 +1081,7 @@ namespace SaintsFieldSourceGenerator
             string tempFilePath = Path.Combine(_tempFolderPath, "SaintsDebug.txt");
             using (StreamWriter writer = new StreamWriter(tempFilePath, true, Encoding.UTF8))
             {
-                writer.WriteLine(toWrite);
+                writer.WriteLine($"[{lineNumber}] {toWrite}");
             }
 #endif
         }
