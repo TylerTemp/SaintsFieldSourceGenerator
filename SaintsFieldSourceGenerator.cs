@@ -275,13 +275,13 @@ namespace SaintsFieldSourceGenerator
             yield return "[global::UnityEngine.SerializeField]\n";
             // yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}), typeof({genSerInfo.FieldType}))]\n";
             yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
-            if(genSerInfo.SerializationType != SerializationType.Dictionary)
+            if(genSerInfo.SerializationType != SerializationType.Dictionary && genSerInfo.SerializationType != SerializationType.HashSet)
             {
                 yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
             }
             if(genSerInfo.Attributes.Count > 0)
             {
-                yield return $"[{string.Join(", ", genSerInfo.Attributes)}]\n";
+                yield return $"[{string.Join(", ", genSerInfo.Attributes.Select(each => each.rawName))}]\n";
             }
             // if (genSerInfo.IsDateTime())
             // {
@@ -312,6 +312,19 @@ namespace SaintsFieldSourceGenerator
                         {
                             equal = $" = new global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>()";
                         }
+                        else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                        {
+                            if(genSerInfo.IsSerializeReference)
+                            {
+                                equal =
+                                    $" = new global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>()";
+                            }
+                            else
+                            {
+                                equal =
+                                    $" = new global::SaintsField.SaintsHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>()";
+                            }
+                        }
                         else
                         {
                             equal = " = new global::SaintsField.SaintsSerialization.SaintsSerializedProperty()";
@@ -326,6 +339,19 @@ namespace SaintsFieldSourceGenerator
                     {
                         yield return
                             $"private global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return
+                                $"private global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                        }
+                        else
+                        {
+                            yield return
+                                $"private global::SaintsField.SaintsHashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                        }
                     }
                     else
                     {
@@ -361,6 +387,19 @@ namespace SaintsFieldSourceGenerator
                         {
                             equal = $" = global::System.Array.Empty<global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>>()";
                         }
+                        else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                        {
+                            if(genSerInfo.IsSerializeReference)
+                            {
+                                equal =
+                                    $" = global::System.Array.Empty<global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>>()";
+                            }
+                            else
+                            {
+                                equal =
+                                    $" = global::System.Array.Empty<global::SaintsField.SaintsHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>>()";
+                            }
+                        }
                         else
                         {
                             equal =
@@ -377,6 +416,19 @@ namespace SaintsFieldSourceGenerator
                     {
                         yield return
                             $"private global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                    }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return
+                                $"private global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                        }
+                        else
+                        {
+                            yield return
+                                $"private global::SaintsField.SaintsHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}__SaintsSerialized__{equal};\n";
+                        }
                     }
                     else
                     {
@@ -530,7 +582,7 @@ namespace SaintsFieldSourceGenerator
                         TypeSyntax varType = fieldDeclarationSyntax.Declaration.Type;
                         // DebugToFile(varType.ToString());
 
-                        ICollection<string> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
+                        ICollection<(AttributeSyntax, string)> attributeStrings = FoundGenSerInfo(fieldDeclarationSyntax.AttributeLists);
                         if (attributeStrings != null)
                         {
                             foreach (VariableDeclaratorSyntax variable in fieldDeclarationSyntax.Declaration.Variables)
@@ -554,7 +606,7 @@ namespace SaintsFieldSourceGenerator
                         SyntaxToken identifier = propertyDeclarationSyntax.Identifier;
                         // DebugToFile(identifier.Text);
 
-                        ICollection<string> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
+                        ICollection<(AttributeSyntax, string)> attributeStrings = FoundGenSerInfo(propertyDeclarationSyntax.AttributeLists);
                         if (attributeStrings != null)
                         {
                             DebugToFile($"Found SaintsSerialized on {identifier.Text}");
@@ -607,6 +659,9 @@ namespace SaintsFieldSourceGenerator
                 {
                     case SerializationType.Dictionary:
                         fieldTypeString = $"global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>";
+                        break;
+                    case SerializationType.HashSet:
+                        fieldTypeString = $"global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>";
                         break;
                     case SerializationType.Default:
                     default:
@@ -662,6 +717,30 @@ namespace SaintsFieldSourceGenerator
                         yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
                         yield return $"}}\n";
                     }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}Assign, global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) "
+                                         + $"= global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                            // ReSharper disable once ExtractCommonBranchingCode
+                            yield return $"if ({genSerInfo.FieldName}Assign)\n";
+                            // ReSharper disable once ExtractCommonBranchingCode
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
+                            yield return $"}}\n";
+                        }
+                        else
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}Assign, global::SaintsField.SaintsHashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) "
+                                         + $"= global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                            yield return $"if ({genSerInfo.FieldName}Assign)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = {genSerInfo.FieldName}Result;\n";
+                            yield return $"}}\n";
+                        }
+
+                    }
                     else
                     {
                         yield return $"(bool {genSerInfo.FieldName}Ok, global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}Result) = "
@@ -675,6 +754,7 @@ namespace SaintsFieldSourceGenerator
                     break;
                 case CollectionType.Array:
                 case CollectionType.List:
+
                     // if(genSerInfo.IsDateTime())
                     // {
                     //     yield return $"if({genSerInfo.FieldName} is System.Collections.Generic.IReadOnlyList<global::System.DateTime>)\n";
@@ -692,6 +772,19 @@ namespace SaintsFieldSourceGenerator
                     if (genSerInfo.SerializationType == SerializationType.Dictionary)
                     {
                         yield return $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                    }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if(genSerInfo.IsSerializeReference)
+                        {
+                            yield return
+                                $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                        }
+                        else
+                        {
+                            yield return
+                                $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeCollectionHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>(ref {genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
+                        }
                     }
                     else
                     {
@@ -733,6 +826,34 @@ namespace SaintsFieldSourceGenerator
                         yield return $"{{\n";
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
                         yield return $"}}\n";
+
+                        // No, this will break the serialization either
+                        // yield return $"if({genSerInfo.FieldName} == null)\n";
+                        // yield return $"{{\n";
+                        // yield return $"    {genSerInfo.FieldName} = new global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>();\n";
+                        // yield return $"}}\n";
+                    }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}Assign, global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) = "
+                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if({genSerInfo.FieldName}Assign)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
+                            yield return $"}}\n";
+                        }
+                        else
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}Assign, global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) = "
+                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeHashSet<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if({genSerInfo.FieldName}Assign)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}Result;\n";
+                            yield return $"}}\n";
+                        }
+
 
                         // No, this will break the serialization either
                         // yield return $"if({genSerInfo.FieldName} == null)\n";
@@ -786,6 +907,31 @@ namespace SaintsFieldSourceGenerator
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
                         yield return "}\n";
                     }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return
+                                $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}SaintsFieldResult) = "
+                                + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferencedHashSetArray<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                            yield return "{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                            yield return "}\n";
+
+                        }
+                        else
+                        {
+                            yield return
+                                $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}SaintsFieldResult) = "
+                                + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeHashSetArray<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                            yield return "{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                            yield return "}\n";
+
+                        }
+                    }
                     else
                     {
                         yield return
@@ -831,6 +977,28 @@ namespace SaintsFieldSourceGenerator
                         yield return $"{{\n";
                         yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
                         yield return $"}}\n";
+                    }
+                    else if (genSerInfo.SerializationType == SerializationType.HashSet)
+                    {
+                        if (genSerInfo.IsSerializeReference)
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>> {genSerInfo.FieldName}SaintsFieldResult) = "
+                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferencedHashSetList<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                            yield return $"}}\n";
+
+                        }
+                        else
+                        {
+                            yield return $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>> {genSerInfo.FieldName}SaintsFieldResult) = "
+                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeHashSetList<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                            yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
+                            yield return $"}}\n";
+                        }
                     }
                     else
                     {
@@ -888,6 +1056,7 @@ namespace SaintsFieldSourceGenerator
         {
             Default,
             Dictionary,
+            HashSet,
         }
 
         private enum CollectionType
@@ -904,12 +1073,12 @@ namespace SaintsFieldSourceGenerator
             public readonly CollectionType CollectionType;
             public readonly IReadOnlyList<string> FieldTypes;
             public readonly string FieldName;
-            public readonly ICollection<string> Attributes;
+            public readonly ICollection<(AttributeSyntax syntax, string rawName)> Attributes;
+            public readonly bool IsSerializeReference;
 
-            public GenSerInfo(string fieldType, string fieldName, ICollection<string> attributes)
+            public GenSerInfo(string fieldType, string fieldName, ICollection<(AttributeSyntax, string)> attributes)
             {
                 FieldName = fieldName;
-                Attributes = attributes;
 
                 // IsProperty = isProperty;
                 if (fieldType.EndsWith("[]"))
@@ -930,8 +1099,59 @@ namespace SaintsFieldSourceGenerator
                     (SerializationType, FieldTypes) = ParseType(fieldType);
                 }
 
+                (IsSerializeReference, Attributes) = CheckIsSerializeReference(attributes);
+                // Attributes = attributes;
+
+
 
                 DebugToFile($"New GenSerInfo SerializationType={SerializationType} CollectionType={CollectionType} for {FieldName}");
+            }
+
+            private static (bool, ICollection<(AttributeSyntax syntax, string rawName)>) CheckIsSerializeReference(ICollection<(AttributeSyntax, string)> attributes)
+            {
+                bool found = false;
+                List<(AttributeSyntax syntax, string rawName)> resultAttributes =
+                    new List<(AttributeSyntax syntax, string rawName)>();
+
+                foreach ((AttributeSyntax originAttribute, string _) r in attributes)
+                {
+                    string nameString = r.originAttribute.Name.ToString();
+                    switch (nameString)
+                    {
+                        case "ValueAttribute":
+                        case "SaintsField.ValueAttribute":
+                        case "global::SaintsField.ValueAttribute":
+                        {
+                            AttributeArgumentListSyntax argList = r.originAttribute.ArgumentList;
+                            if (argList == null || argList.Arguments.Count != 1)
+                            {
+                                break;
+                            }
+                            if (!(argList.Arguments[0].Expression is TypeOfExpressionSyntax typeofExpr))
+                            {
+                                break;
+                            }
+                            string typeName = typeofExpr.Type.ToString();
+                            bool isType = typeName == "SerializeReference"
+                                   || typeName == "UnityEngine.SerializeReference"
+                                   || typeName == "global::UnityEngine.SerializeReference";
+                            if (isType)
+                            {
+                                found = true;
+                                continue;
+                            }
+                        }
+                            break;
+                        // case "SerializeReference":
+                        // case "UnityEngine.SerializeReference":
+                        // case "global::UnityEngine.SerializeReference":
+                        //     IsSerializeReference = true;
+                        //     break;
+                    }
+                    resultAttributes.Add(r);
+                }
+
+                return (found, resultAttributes);
             }
 
             private static readonly string[] DictionaryTypePref =
@@ -941,6 +1161,14 @@ namespace SaintsFieldSourceGenerator
                 "Collections.Generic.Dictionary<",
                 "System.Collections.Generic.Dictionary<",
                 "global::System.Collections.Generic.Dictionary<",
+            };
+            private static readonly string[] HashSetTypePref =
+            {
+                "HashSet<",
+                "Generic.HashSet<",
+                "Collections.Generic.HashSet<",
+                "System.Collections.Generic.HashSet<",
+                "global::System.Collections.Generic.HashSet<",
             };
 
             private static (SerializationType serializationType, IReadOnlyList<string> fieldTypes) ParseType(string typeString)
@@ -954,6 +1182,21 @@ namespace SaintsFieldSourceGenerator
                         DebugToFile($"Found dictionary of type {rawType}");
                         return (
                             SerializationType.Dictionary,
+                            rawType.Split(',')
+                                .Select(each => each.Trim())
+                                .ToArray());
+
+                    }
+                }
+                foreach (string checkHashSet in HashSetTypePref)
+                {
+                    if (typeString.StartsWith(checkHashSet))
+                    {
+                        string rawType = typeString
+                            .Substring(checkHashSet.Length, typeString.Length - checkHashSet.Length - 1);
+                        DebugToFile($"Found hashset of type {rawType}");
+                        return (
+                            SerializationType.HashSet,
                             rawType.Split(',')
                                 .Select(each => each.Trim())
                                 .ToArray());
@@ -977,10 +1220,10 @@ namespace SaintsFieldSourceGenerator
             // }
         }
 
-        private static ICollection<string> FoundGenSerInfo(SyntaxList<AttributeListSyntax> attributes)
+        private static ICollection<(AttributeSyntax, string)> FoundGenSerInfo(SyntaxList<AttributeListSyntax> attributes)
         {
             bool foundSaintsSerialized = false;
-            List<string> extraAttributes = new List<string>();
+            List<(AttributeSyntax, string)> extraAttributes = new List<(AttributeSyntax, string)>();
 
             // ReSharper disable once ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
             foreach (AttributeListSyntax attributeList in attributes)
@@ -1021,13 +1264,14 @@ namespace SaintsFieldSourceGenerator
                             if (argList != null && argList.Arguments.Count == 1)
                             {
                                 AttributeArgumentSyntax arg = argList.Arguments[0];
-                                extraAttributes.Add($"global::UnityEngine.Serialization.FormerlySerializedAs({arg.ToString()} + \"__SaintsSerialized__\")");
+                                extraAttributes.Add(
+                                    (attributeSyntax, $"global::UnityEngine.Serialization.FormerlySerializedAs({arg.ToString()} + \"__SaintsSerialized__\")"));
                             }
 
                             break;
                         }
                         default:
-                            extraAttributes.Add(attributeSyntax.ToString());
+                            extraAttributes.Add((attributeSyntax, attributeSyntax.ToString()));
                             break;
                     }
                 }
