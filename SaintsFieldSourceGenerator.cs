@@ -913,7 +913,7 @@ namespace SaintsFieldSourceGenerator
                         {
                             yield return
                                 $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>[] {genSerInfo.FieldName}SaintsFieldResult) = "
-                                + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferencedHashSetArray<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                                + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferenceHashSetArray<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
                             yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
                             yield return "{\n";
                             yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
@@ -983,7 +983,7 @@ namespace SaintsFieldSourceGenerator
                         if (genSerInfo.IsSerializeReference)
                         {
                             yield return $"(bool {genSerInfo.FieldName}SaintsFieldFilled, global::System.Collections.Generic.List<global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>> {genSerInfo.FieldName}SaintsFieldResult) = "
-                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferencedHashSetList<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
+                                         + $"global::SaintsField.Utils.SaintsSerializedUtil.OnAfterDeserializeReferenceHashSetList<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}, {genSerInfo.FieldName}__SaintsSerialized__);\n";
                             yield return $"if(!{genSerInfo.FieldName}SaintsFieldFilled)\n";
                             yield return $"{{\n";
                             yield return $"    {genSerInfo.FieldName} = {genSerInfo.FieldName}SaintsFieldResult;\n";
