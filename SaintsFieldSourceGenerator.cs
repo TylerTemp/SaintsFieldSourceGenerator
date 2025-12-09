@@ -18,6 +18,9 @@ namespace SaintsFieldSourceGenerator
     public class SaintsFieldSourceGenerator : ISourceGenerator
     {
 
+        private bool _generate = true;
+        private static bool _debug = false;
+
         private interface IWriter
         {
             string Write();
@@ -164,6 +167,32 @@ namespace SaintsFieldSourceGenerator
                     {
                         DebugToFile($"not in asset path: {tree.FilePath}");
                         continue;
+                    }
+
+                    string rcFile = assetPathNotIncluded + "/Assets/SaintsField.Generated/~generate.saintsfieldrc";
+                    if (File.Exists(rcFile))
+                    {
+                        string rcContent = File.ReadAllText(rcFile).Trim();
+                        foreach (string line in rcContent.Split('\n'))
+                        {
+                            string[] lineParts = line.Trim().Split('=');
+                            string controlName = lineParts[0];
+                            int controlValue = int.Parse(lineParts[1]);
+                            switch (controlName)
+                            {
+                                case "generate":
+                                    _generate = controlValue != 0;
+                                    break;
+                                case "debug":
+                                    _debug = controlValue != 0;
+                                    break;
+                            }
+                        }
+                    }
+
+                    if (!_generate)
+                    {
+                        return;
                     }
 
 
@@ -1308,14 +1337,18 @@ namespace SaintsFieldSourceGenerator
             return prefix;
         }
 
-#if DEBUG
+// #if DEBUG
         private static string _tempFolderPath;
-#endif
+// #endif
 
         // ReSharper disable once UnusedParameter.Local
         private static void DebugToFile(string toWrite, [CallerLineNumber] int lineNumber = 0)
         {
-#if DEBUG
+            if (!_debug)
+            {
+                return;
+            }
+// #if DEBUG
             if(string.IsNullOrEmpty(_tempFolderPath))
             {
                 _tempFolderPath = Path.GetTempPath();
@@ -1327,7 +1360,7 @@ namespace SaintsFieldSourceGenerator
             {
                 writer.WriteLine($"[{lineNumber}] {toWrite}");
             }
-#endif
+// #endif
         }
 
     }
