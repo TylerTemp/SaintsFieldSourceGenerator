@@ -169,7 +169,7 @@ namespace SaintsFieldSourceGenerator
                         continue;
                     }
 
-                    string rcFile = assetPathNotIncluded + "/Assets/SaintsField.Generated/~generate.saintsfieldrc";
+                    string rcFile = assetPathNotIncluded + "/Assets/~generate.saintsfieldrc";
                     if (File.Exists(rcFile))
                     {
                         string rcContent = File.ReadAllText(rcFile).Trim();
