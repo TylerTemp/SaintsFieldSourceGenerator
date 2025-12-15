@@ -308,7 +308,8 @@ namespace SaintsFieldSourceGenerator
             yield return $"[global::SaintsField.Utils.SaintsSerializedActual(nameof({genSerInfo.FieldName}))]\n";
             if (genSerInfo.SerializationType != SerializationType.Dictionary && genSerInfo.SerializationType != SerializationType.HashSet)
             {
-                yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
+                // yield return "[global::SaintsField.SaintsRow(inline: true)]\n";
+                yield return $"[global::SaintsField.Utils.SaintsSerializedActualDrawer]\n";
             }
             if (genSerInfo.Attributes.Count > 0)
             {
