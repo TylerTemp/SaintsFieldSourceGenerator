@@ -5,16 +5,16 @@ namespace SaintsFieldSourceGenerator
 {
     public class ScoopedWriter : IWriter
     {
-        public readonly List<string> UsingLines = new List<string>();
+        // public readonly List<string> UsingLines = new List<string>();
         public string NamespaceName;
         public List<ClassOrStructWriter> SubClassOrStructWriters = new List<ClassOrStructWriter>();
         public string Write()
         {
             StringBuilder sb = new StringBuilder();
-            foreach (string usingLine in UsingLines)
-            {
-                sb.Append($"{Indent.GetIndentString()}using {usingLine};\n");
-            }
+            // foreach (string usingLine in UsingLines)
+            // {
+            //     sb.Append($"{Indent.GetIndentString()}using {usingLine};\n");
+            // }
 
             if (NamespaceName != null)
             {

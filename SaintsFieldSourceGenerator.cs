@@ -81,13 +81,7 @@ namespace SaintsFieldSourceGenerator
                         return;
                     }
 
-
-                    if (!tree.FilePath.Contains("SerDictionaryExample"))
-                    {
-                        continue;
-                    }
-
-                    Utils.DebugToFile($"Processing {tree.FilePath}");
+                    DebugToFile($"Processing {tree.FilePath}");
 
                     //string relativePath = norPath.Substring(assetPathNotIncluded.Length + "/Assets".Length + 1);
                     string fileBaseName = Path.GetFileNameWithoutExtension(tree.FilePath);
@@ -96,14 +90,14 @@ namespace SaintsFieldSourceGenerator
 
                     // ScoopedWriter rootWriter = new ScoopedWriter();
 
-                    List<string> usingNames = new List<string>();
+                    // List<string> usingNames = new List<string>();
 
                     // ReSharper disable once ForeachCanBeConvertedToQueryUsingAnotherGetEnumerator
-                    foreach (UsingDirectiveSyntax usingDirectiveSyntax in root.Usings)
-                    {
-                        // DebugToFile(usingDirectiveSyntax.ToString());
-                        usingNames.Add(usingDirectiveSyntax.ToString());
-                    }
+                    // foreach (UsingDirectiveSyntax usingDirectiveSyntax in root.Usings)
+                    // {
+                    //     // DebugToFile(usingDirectiveSyntax.ToString());
+                    //     usingNames.Add(usingDirectiveSyntax.ToString());
+                    // }
 
                     SemanticModel semanticModel = context.Compilation.GetSemanticModel(tree);
 
@@ -111,7 +105,7 @@ namespace SaintsFieldSourceGenerator
 
                     foreach (MemberDeclarationSyntax memberDeclarationSyntax in root.Members)
                     {
-                        Utils.DebugToFile($"memberDeclarationSyntax.Kind()={memberDeclarationSyntax.Kind()}");
+                        DebugToFile($"memberDeclarationSyntax.Kind()={memberDeclarationSyntax.Kind()}");
                         // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
                         switch (memberDeclarationSyntax.Kind())
                         {
@@ -120,7 +114,7 @@ namespace SaintsFieldSourceGenerator
                                     NamespaceDeclarationSyntax namespaceDeclarationSyntax =
                                         (NamespaceDeclarationSyntax)memberDeclarationSyntax;
 
-                                    Utils.DebugToFile($"Processing namespace {namespaceDeclarationSyntax.Name}");
+                                    DebugToFile($"Processing namespace {namespaceDeclarationSyntax.Name}");
 
                                     ScoopedWriter nameSpaceResult =
                                         ParseNamespace(context.Compilation, semanticModel, namespaceDeclarationSyntax);
@@ -163,10 +157,10 @@ namespace SaintsFieldSourceGenerator
                     }
 
                     StringBuilder sourceBuilder = new StringBuilder();
-                    foreach (string usingName in usingNames)
-                    {
-                        sourceBuilder.Append($"{usingName}\n");
-                    }
+                    // foreach (string usingName in usingNames)
+                    // {
+                    //     sourceBuilder.Append($"{usingName}\n");
+                    // }
 
                     foreach (IWriter writer in writers)
                     {
@@ -194,8 +188,8 @@ namespace SaintsFieldSourceGenerator
             }
             catch (Exception e)
             {
-                Utils.DebugToFile(e.Message);
-                Utils.DebugToFile(e.StackTrace);
+                DebugToFile(e.Message);
+                DebugToFile(e.StackTrace);
             }
         }
 
@@ -205,10 +199,10 @@ namespace SaintsFieldSourceGenerator
             {
                 NamespaceName = namespaceDeclarationSyntax.Name.ToString(),
             };
-            foreach (UsingDirectiveSyntax usingDirectiveSyntax in namespaceDeclarationSyntax.Usings)
-            {
-                writer.UsingLines.Add(usingDirectiveSyntax.Name.ToString());
-            }
+            // foreach (UsingDirectiveSyntax usingDirectiveSyntax in namespaceDeclarationSyntax.Usings)
+            // {
+            //     writer.UsingLines.Add(usingDirectiveSyntax.Name.ToString());
+            // }
 
             List<ClassOrStructWriter> classOrStructWriters = new List<ClassOrStructWriter>();
 
@@ -260,11 +254,11 @@ namespace SaintsFieldSourceGenerator
                 switch (syntax)
                 {
                     case ClassDeclarationSyntax classDecl:
-                        if (classDecl.Modifiers.Any(m => m.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword)))
+                        if (classDecl.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
                             return true;
                         break;
                     case StructDeclarationSyntax structDecl:
-                        if (structDecl.Modifiers.Any(m => m.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword)))
+                        if (structDecl.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)))
                             return true;
                         break;
                 }
@@ -299,13 +293,20 @@ namespace SaintsFieldSourceGenerator
             {
                 sb.Append("abstract ");
             }
-            if (namedTypeSymbol.IsSealed && !namedTypeSymbol.IsAbstract)
+            if(isClass)
             {
-                sb.Append("sealed ");
+                if (namedTypeSymbol.IsSealed && !namedTypeSymbol.IsAbstract)
+                {
+                    sb.Append("sealed ");
+                }
             }
             sb.Append("partial ");
             sb.Append(namedTypeSymbol.TypeKind == TypeKind.Class ? "class " : "struct ");
             sb.Append(namedTypeSymbol.Name);
+            // string fullName = namedTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            // sb.Append($"/* {fullName} */");
+            // DebugToFile($"fullName={fullName}");
+
             if (namedTypeSymbol.TypeParameters.Any())
             {
                 sb.Append("<");
@@ -346,18 +347,23 @@ namespace SaintsFieldSourceGenerator
                 {
                     case IFieldSymbol fieldSymbol:
                     {
-                        Utils.DebugToFile($"GetSer IFieldSymbol {fieldSymbol.Name} in {namedTypeSymbol.Name}");
+                        DebugToFile($"GetSer IFieldSymbol {fieldSymbol.Name} in {namedTypeSymbol.Name}");
                         ITypeSymbol varType = fieldSymbol.Type;
                         ImmutableArray<AttributeData> attributes = fieldSymbol.GetAttributes();
 
                         ICollection<(AttributeData, string)> attributeStrings = FoundGenSerInfo(compilation, attributes);
+
                         if (attributeStrings != null)
                         {
-                            Utils.DebugToFile($"Found SaintsSerialized on {varType} {fieldSymbol.Name}");
+                            string simpleName = (fieldSymbol.AssociatedSymbol is IPropertySymbol prop)
+                                ? prop.Name
+                                : fieldSymbol.Name;
+
+                            DebugToFile($"Found SaintsSerialized on {varType} {fieldSymbol.Name}");
                             genSerInfos.Add(new GenSerInfo(
                                 compilation,
                                 varType,
-                                fieldSymbol.Name,
+                                simpleName,
                                 attributeStrings
                             ));
                         }
@@ -365,14 +371,14 @@ namespace SaintsFieldSourceGenerator
                         break;
                     case IPropertySymbol propertySymbol:
                     {
-                        Utils.DebugToFile($"GetSer IFieldSymbol {propertySymbol.Name} in {namedTypeSymbol.Name}");
+                        DebugToFile($"GetSer IFieldSymbol {propertySymbol.Name} in {namedTypeSymbol.Name}");
                         ITypeSymbol varType = propertySymbol.Type;
                         ImmutableArray<AttributeData> attributes = propertySymbol.GetAttributes();
 
                         ICollection<(AttributeData, string)> attributeStrings = FoundGenSerInfo(compilation, attributes);
                         if (attributeStrings != null)
                         {
-                            Utils.DebugToFile($"Found SaintsSerialized on {varType} {propertySymbol.Name}");
+                            DebugToFile($"Found SaintsSerialized on {varType} {propertySymbol.Name}");
                             genSerInfos.Add(new GenSerInfo(
                                 compilation,
                                 varType,
@@ -387,7 +393,7 @@ namespace SaintsFieldSourceGenerator
                         INamedTypeSymbol containingType = member.ContainingType;
                         if (containingType.TypeKind == TypeKind.Class)
                         {
-                            Utils.DebugToFile($"GetSer Class {subNamedTypeSymbol.Name} in {namedTypeSymbol.Name}");
+                            DebugToFile($"GetSer Class {subNamedTypeSymbol.Name} in {namedTypeSymbol.Name}");
                             ClassOrStructWriter classR = ParseClassOrStructDeclarationSyntax(compilation, subNamedTypeSymbol);
                             if (classR != null)
                             {
@@ -396,7 +402,7 @@ namespace SaintsFieldSourceGenerator
                         }
                         else if (containingType.TypeKind == TypeKind.Struct)
                         {
-                            Utils.DebugToFile($"GetSer Struct {subNamedTypeSymbol.Name} in {namedTypeSymbol.Name}");
+                            DebugToFile($"GetSer Struct {subNamedTypeSymbol.Name} in {namedTypeSymbol.Name}");
                             ClassOrStructWriter structR = ParseClassOrStructDeclarationSyntax(compilation, subNamedTypeSymbol);
                             if (structR != null)
                             {
@@ -458,15 +464,15 @@ namespace SaintsFieldSourceGenerator
             List<(AttributeData, string)> extraAttributes = new List<(AttributeData, string)>();
 
             INamedTypeSymbol saintsSerialized = compilation.GetTypeByMetadataName("SaintsField.Playa.SaintsSerializedAttribute");
-            INamedTypeSymbol nonSerialized = compilation.GetTypeByMetadataName("System.NonSerialized");
+            INamedTypeSymbol nonSerialized = compilation.GetTypeByMetadataName("System.NonSerializedAttribute");
             INamedTypeSymbol serializeField = compilation.GetTypeByMetadataName("UnityEngine.SerializeField");
             INamedTypeSymbol hideInInspector = compilation.GetTypeByMetadataName("UnityEngine.HideInInspector");
-            INamedTypeSymbol formerlySerializedAs = compilation.GetTypeByMetadataName("UnityEngine.Serialization.FormerlySerializedAs");
+            INamedTypeSymbol formerlySerializedAs = compilation.GetTypeByMetadataName("UnityEngine.Serialization.FormerlySerializedAsAttribute");
 
             // ReSharper disable once ForeachCanBePartlyConvertedToQueryUsingAnotherGetEnumerator
             foreach (AttributeData attr in attributes)
             {
-                if(Utils.EqualType(attr.AttributeClass, saintsSerialized, "SaintsField.Playa.SaintsSerializedAttribute"))
+                if(EqualType(attr.AttributeClass, saintsSerialized, "SaintsField.Playa.SaintsSerializedAttribute"))
                 {
                     foundSaintsSerialized = true;
                     continue;
@@ -476,23 +482,23 @@ namespace SaintsFieldSourceGenerator
                     DebugToFile($"no SaintsSerialized: {attr}, compared with {saintsSerialized}");
                 }
 
-                if (Utils.EqualType(attr.AttributeClass, nonSerialized, "System.NonSerialized")
-                    || Utils.EqualType(attr.AttributeClass, serializeField, "UnityEngine.SerializeField")
-                    || Utils.EqualType(attr.AttributeClass, hideInInspector, "UnityEngine.HideInInspector")
+                if (EqualType(attr.AttributeClass, nonSerialized, "System.NonSerializedAttribute")
+                    || EqualType(attr.AttributeClass, serializeField, "UnityEngine.SerializeField")
+                    || EqualType(attr.AttributeClass, hideInInspector, "UnityEngine.HideInInspector")
                    )
                 {
                     // ignore
                     continue;
                 }
 
-                if(Utils.EqualType(attr.AttributeClass, formerlySerializedAs, "UnityEngine.Serialization.FormerlySerializedAs"))
+                if(EqualType(attr.AttributeClass, formerlySerializedAs, "UnityEngine.Serialization.FormerlySerializedAsAttribute"))
                 {
                     if (attr.ConstructorArguments.Length == 1)
                     {
                         TypedConstant arg = attr.ConstructorArguments[0];
                         extraAttributes.Add((
                             attr,
-                            $"global::UnityEngine.Serialization.FormerlySerializedAs({arg.ToCSharpString()} + \"__SaintsSerialized__\")"
+                            $"global::UnityEngine.Serialization.FormerlySerializedAsAttribute({arg.ToCSharpString()} + \"__SaintsSerialized__\")"
                         ));
                     }
 
