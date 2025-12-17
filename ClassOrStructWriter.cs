@@ -292,25 +292,13 @@ namespace SaintsFieldSourceGenerator
             {
                 case CollectionType.None:
                     {
-                        // if(genSerInfo.IsDateTime())
-                        // {
-                        //
-                        //     yield return $"if({genSerInfo.FieldName} is global::System.DateTime)\n";
-                        //     yield return $"{{\n";
-                        //     yield return $"    {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDateTime({genSerInfo.FieldName});\n";
-                        //     yield return $"}}\n";
-                        // }
-                        // else if (genSerInfo.IsTimeSpan())
-                        // {
-                        //     yield return $"if({genSerInfo.FieldName} is global::System.TimeSpan)\n";
-                        //     yield return $"{{\n";
-                        //     yield return
-                        //         $"    {genSerInfo.FieldName}__SaintsSerialized__ = global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeTimeSpan({genSerInfo.FieldName});\n";
-                        //     yield return $"}}\n";
-                        //
-                        // }
                         if (genSerInfo.SerializationType == SerializationType.Dictionary)
                         {
+                            yield return $"if ({genSerInfo.FieldName} == null)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = new global::System.Collections.Generic.Dictionary<{string.Join(", ", genSerInfo.FieldTypes)}>();\n";
+                            yield return $"}}\n";
+
                             yield return $"(bool {genSerInfo.FieldName}Assign, global::SaintsField.SaintsDictionary<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) "
                                 + $"= global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerializeDictionary<{string.Join(", ", genSerInfo.FieldTypes)}>({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName});\n";
                             yield return $"if ({genSerInfo.FieldName}Assign)\n";
@@ -321,6 +309,11 @@ namespace SaintsFieldSourceGenerator
                         }
                         else if (genSerInfo.SerializationType == SerializationType.HashSet)
                         {
+                            yield return $"if ({genSerInfo.FieldName} == null)\n";
+                            yield return $"{{\n";
+                            yield return $"    {genSerInfo.FieldName} = new global::System.Collections.Generic.HashSet<{string.Join(", ", genSerInfo.FieldTypes)}>();\n";
+                            yield return $"}}\n";
+
                             if (genSerInfo.IsSerializeReference)
                             {
                                 yield return $"(bool {genSerInfo.FieldName}Assign, global::SaintsField.ReferenceHashSet<{string.Join(", ", genSerInfo.FieldTypes)}> {genSerInfo.FieldName}Result) "
@@ -345,6 +338,11 @@ namespace SaintsFieldSourceGenerator
                         }
                         else
                         {
+                            // yield return $"if ({genSerInfo.FieldName} == null)\n";
+                            // yield return $"{{\n";
+                            // yield return $"    {genSerInfo.FieldName} = new {genSerInfo.FieldTypes[0]}();\n";
+                            // yield return $"}}\n";
+
                             yield return $"(bool {genSerInfo.FieldName}Ok, global::SaintsField.SaintsSerialization.SaintsSerializedProperty {genSerInfo.FieldName}Result) = "
                                 + $"global::SaintsField.Utils.SaintsSerializedUtil.OnBeforeSerialize({genSerInfo.FieldName}__SaintsSerialized__, {genSerInfo.FieldName}, typeof({genSerInfo.FieldTypes[0]}));\n";
                             yield return $"if ({genSerInfo.FieldName}Ok)\n";

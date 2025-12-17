@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -178,8 +176,12 @@ namespace SaintsFieldSourceGenerator
                     }
                     else
                     {
+                        // if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        // {
+                        //     folder = FindAssetPathNotIncluded(folder);
+                        // }
                         // saveToPath = Path.Combine(folder.Replace('/', Path.DirectorySeparatorChar), fileName);
-                        saveToPath = $"{folder}/{fileName}";
+                        saveToPath = $"{FindAssetPathNotIncluded(folder)}/{fileName}";
                     }
 
                     context.AddSource(saveToPath.Replace('\\', '_').Replace('/', '_').Replace(':', '_'),
